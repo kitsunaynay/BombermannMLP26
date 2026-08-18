@@ -133,6 +133,10 @@ def main(argv = None):
                          help="Wait for key press until next movement")
         sub.add_argument("--update-interval", type=float, default=0.1,
                          help="How often agents take steps (ignored without GUI)")
+        # GUI.make_video reads args.fps (environment.py:651) but no argument
+        # ever defined it, so --make-video always died with an AttributeError.
+        sub.add_argument("--fps", type=float, default=15,
+                         help="Frame rate of the video produced by --make-video")
         sub.add_argument("--log-dir", default=os.path.dirname(os.path.abspath(__file__)) + "/logs")
         sub.add_argument("--save-stats", const=True, default=False, action='store', nargs='?', help='Store the game results as .json for evaluation')
 

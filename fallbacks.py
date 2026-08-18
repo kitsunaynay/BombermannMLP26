@@ -19,7 +19,10 @@ try:
     pygame.init()
 except ModuleNotFoundError:
     pygame = QuietFallback()
-    LOADED_PYGAME = True
+    # Was `True`, which made main.py's "pygame could not loaded" guard
+    # unreachable: running with a GUI without pygame installed silently drew
+    # nothing instead of reporting the problem.
+    LOADED_PYGAME = False
 
 try:
     from tqdm import tqdm
