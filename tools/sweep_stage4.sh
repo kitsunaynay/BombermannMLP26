@@ -2,10 +2,21 @@
 # Stage-4 sweep: the agent against three rule_based_agents. This is the matchup
 # the tournament is, and the one the project has never trained on.
 #
-# Two arms x three seeds, the arms differing only in the safety mode. The mask
-# comparison was measured at stage 3 with n=3 seeds x 30 arenas and could not
-# resolve the 0.70-point difference between the arms (PIPELINE_REVIEW D1);
-# stage 4 evaluates on 60 arenas, which is the powered version of that question.
+# Arms:
+#
+#   hard    the project's standard schedule: safety_mode hard, epsilon 1.0 -> 0.05
+#   warm    identical but epsilon starts at 0.3
+#   soft    safety_mode soft, standard schedule
+#
+# `warm` exists because a resumed stage restarting exploration at 1.0 discards
+# the policy the previous stage produced. Measured on the first launch: at
+# epsilon 0.90 the `hard` arm still managed 150-400 steps and 12-19 crates a
+# round, because the mask refuses unsurvivable bombs, while `soft` at epsilon
+# 0.43 was down to 6-23 steps with a suicide in every round and a *shrinking*
+# state count. The mask was carrying the exploration, not the policy.
+#
+# `soft` is kept in the script for reproducibility but is not in the default
+# set: 1,690 rounds of it produced no score and no state growth.
 #
 # Each arm resumes from its OWN lineage's selected stage-3 table. A table
 # trained behind `hard` and replayed under `soft` suicides in every round
@@ -16,7 +27,8 @@
 # run.json records each run's flags, derived seeds, git sha and the md5 of the
 # table it resumed from, so the pairing is verifiable afterwards.
 #
-# Usage:  tools/sweep_stage4.sh [episodes]        (default 10000)
+# Usage:  tools/sweep_stage4.sh [episodes]           (default 10000)
+#         ARMS='hard soft' tools/sweep_stage4.sh    (pick the arms)
 set -u
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -38,13 +50,20 @@ declare -A SOURCE=(
 )
 
 launch() {
-  local mode="$1" seed="$2"
-  local run_id="s4-${mode}-s${seed}"
+  local arm="$1" seed="$2"
+  local run_id="s4-${arm}-s${seed}"
   local work="$CKPT/$run_id"
-  local source_table="$CKPT/${SOURCE[${mode}-${seed}]}"
+
+  # `warm` is the hard lineage with a different exploration schedule.
+  local mode="$arm" lineage="$arm" extra=()
+  if [[ "$arm" == "warm" ]]; then
+    mode="hard"; lineage="hard"; extra=(--epsilon-start 0.3)
+  fi
+
+  local source_table="$CKPT/${SOURCE[${lineage}-${seed}]}"
 
   if [[ ! -f "$source_table" ]]; then
-    echo "MISSING stage-3 table for ${mode} seed ${seed}: $source_table" >&2
+    echo "MISSING stage-3 table for ${arm} seed ${seed}: $source_table" >&2
     return 1
   fi
 
@@ -52,14 +71,14 @@ launch() {
   cp "$source_table" "$work/q_table.pkl"
 
   {
-    echo "=== $run_id | stage 4 classic vs rule_based x3 | seed $seed | safety $mode ==="
+    echo "=== $run_id | stage 4 classic vs rule_based x3 | seed $seed | arm $arm | safety $mode ==="
     date
     echo "resumed from $source_table (md5 $(md5sum "$source_table" | cut -d' ' -f1))"
   } > "results/$run_id/driver.log"
 
   nohup "$PY" tools/train_ql.py \
       --stage 4 --resume --episodes "$EPISODES" \
-      --safety-mode "$mode" \
+      --safety-mode "$mode" "${extra[@]+"${extra[@]}"}" \
       --seed "$seed" --run-id "$run_id" \
       --checkpoint-every 250 \
       >> "results/$run_id/driver.log" 2>&1 &
@@ -67,12 +86,14 @@ launch() {
   echo "launched $run_id (pid $!)"
 }
 
+ARMS="${ARMS:-hard warm}"
 for seed in 0 1 2; do
-  launch hard "$seed"
-  launch soft "$seed"
+  for arm in $ARMS; do
+    launch "$arm" "$seed"
+  done
 done
 
 echo
-echo "6 runs launched, $EPISODES episodes each."
+echo "runs launched for arms [$ARMS], $EPISODES episodes each."
 echo "Watch:   tail -f results/s4-*/driver.log"
 echo "Done?:   grep -c 'gate:' results/s4-*/driver.log"
