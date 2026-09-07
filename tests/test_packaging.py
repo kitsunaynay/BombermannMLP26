@@ -129,6 +129,37 @@ def test_iter_files_excludes_caches_and_logs(tmp_path):
     assert names == {"callbacks.py", "model.pkl"}
 
 
+def test_iter_files_excludes_training_checkpoints(tmp_path):
+    """Snapshots are training output; shipping them made the PPO zip 2.1 GB."""
+    agent_dir = make_agent(tmp_path, GOOD_CALLBACKS)
+    (agent_dir / "checkpoints").mkdir()
+    (agent_dir / "checkpoints" / "run-a").mkdir()
+    (agent_dir / "checkpoints" / "run-a" / "policy_it000040.pt").write_bytes(b"x")
+    (agent_dir / "checkpoints" / "q_table_r000250.pkl").write_bytes(b"x")
+
+    names = {path.name for path in pkg.iter_files(agent_dir)}
+
+    assert names == {"callbacks.py", "model.pkl"}
+
+
+def test_oversized_archive_is_flagged(tmp_path):
+    agent_dir = make_agent(tmp_path, GOOD_CALLBACKS)
+    oversized = int(pkg.MAX_ARCHIVE_MB * 1e6) + 1
+    (agent_dir / "policy.pt").write_bytes(b"\0" * oversized)
+
+    problems = pkg.check_archive_size(pkg.iter_files(agent_dir))
+
+    assert len(problems) == 1
+    assert "exceeds" in problems[0]
+    assert "policy.pt" in problems[0]
+
+
+def test_normal_archive_is_not_flagged(tmp_path):
+    agent_dir = make_agent(tmp_path, GOOD_CALLBACKS)
+
+    assert pkg.check_archive_size(pkg.iter_files(agent_dir)) == []
+
+
 def test_real_agents_pass_their_own_checks():
     """The shipped agents must satisfy the packager they are packaged by."""
     for name in ("attackontensor_ql", "attackontensor_ppo"):
@@ -138,6 +169,7 @@ def test_real_agents_pass_their_own_checks():
         assert pkg.check_required_callbacks(agent_dir) == [], name
         assert pkg.check_imports(files) == [], name
         assert pkg.check_absolute_paths(files) == [], name
+        assert pkg.check_archive_size(files) == [], name
 
 
 def test_zip_is_rooted_at_the_agent_directory(tmp_path, monkeypatch):

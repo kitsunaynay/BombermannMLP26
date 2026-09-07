@@ -1,0 +1,67 @@
+[
+  {
+    "checkpoint": "q_table_r002750.pkl",
+    "score": 45.666666666666664,
+    "survival": 1.0
+  },
+  {
+    "checkpoint": "q_table_r002250.pkl",
+    "score": 44.833333333333336,
+    "survival": 1.0
+  },
+  {
+    "checkpoint": "q_table_r001500.pkl",
+    "score": 44.666666666666664,
+    "survival": 1.0
+  },
+  {
+    "checkpoint": "q_table_r001750.pkl",
+    "score": 44.583333333333336,
+    "survival": 1.0
+  },
+  {
+    "checkpoint": "q_table_r002000.pkl",
+    "score": 43.916666666666664,
+    "survival": 1.0
+  },
+  {
+    "checkpoint": "q_table.pkl",
+    "score": 42.333333333333336,
+    "survival": 1.0
+  },
+  {
+    "checkpoint": "q_table_r003000.pkl",
+    "score": 42.333333333333336,
+    "survival": 1.0
+  },
+  {
+    "checkpoint": "q_table_r001250.pkl",
+    "score": 40.333333333333336,
+    "survival": 1.0
+  },
+  {
+    "checkpoint": "q_table_r002500.pkl",
+    "score": 39.666666666666664,
+    "survival": 1.0
+  },
+  {
+    "checkpoint": "q_table_r001000.pkl",
+    "score": 36.333333333333336,
+    "survival": 1.0
+  },
+  {
+    "checkpoint": "q_table_r000750.pkl",
+    "score": 35.666666666666664,
+    "survival": 1.0
+  },
+  {
+    "checkpoint": "q_table_r000250.pkl",
+    "score": 25.916666666666668,
+    "survival": 1.0
+  },
+  {
+    "checkpoint": "q_table_r000500.pkl",
+    "score": 16.583333333333332,
+    "survival": 1.0
+  }
+]

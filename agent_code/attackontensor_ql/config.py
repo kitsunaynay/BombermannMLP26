@@ -18,7 +18,7 @@ import json
 import os
 from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 AGENT_DIR = Path(__file__).resolve().parent
 ENV_PREFIX = "AOT_QL_"
@@ -121,6 +121,27 @@ class QLConfig:
     potential_danger: float = 0.5
     event_rewards: Dict[str, float] = field(default_factory=default_event_rewards)
 
+    # --- evaluation ----------------------------------------------------------
+    # Exploration rate used when NOT training. 0.0 is pure greedy, the
+    # tournament default and the historical behaviour.
+    #
+    # Why this exists: a deterministic policy in a near-deterministic
+    # environment can enter a movement limit cycle it cannot leave -- the agent
+    # paces between two tiles until the step limit, scoring ~0 while surviving
+    # 100% of rounds. Measured in 52 of 71 collapsed Task-2 snapshots, and the
+    # PPO agent hit the identical failure in Phase 0 (argmax 13.36 vs sampling
+    # 31.56 coins). A small amount of evaluation noise is the cheapest known
+    # escape. Left at 0.0 until measured.
+    eval_epsilon: float = 0.0
+
+    # --- reproducibility -----------------------------------------------------
+    # Seed for the agent's own RNG: epsilon-greedy draws, greedy tie-breaks and
+    # the Double-Q table coin flip. Negative means "unseeded", which is the
+    # tournament default -- there the framework decides the seeding and a fixed
+    # one would make every game identical. tools/train_ql.py sets it per run so
+    # that a seeded replicate is actually replayable.
+    seed: int = -1
+
     # --- persistence and telemetry ------------------------------------------
     model_file: str = "q_table.pkl"
     checkpoint_every: int = 200
@@ -142,6 +163,11 @@ class QLConfig:
             raise ValueError(
                 f"Unknown feature variant {self.variant!r}; choose from {sorted(VARIANTS)}"
             ) from None
+
+    @property
+    def rng_seed(self) -> Optional[int]:
+        """``seed`` as numpy wants it: ``None`` when unseeded."""
+        return None if self.seed < 0 else int(self.seed)
 
     @property
     def model_path(self) -> Path:

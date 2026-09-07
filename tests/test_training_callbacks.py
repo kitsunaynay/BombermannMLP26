@@ -278,3 +278,37 @@ def test_ppo_act_caches_rollout_data_for_training(ppo_agent):
     cached = agent._step_cache[(state["round"], state["step"])]
     assert cached["observation"].shape[0] == 13
     assert "log_prob" in cached and "value" in cached and "mask" in cached
+
+
+def test_ql_round_stats_reset_every_round(ql_agent):
+    """Per-round counters must not accumulate across rounds.
+
+    The reset used to sit inside ``_write_snapshot``, which runs only every
+    ``checkpoint_every`` rounds and returns early when snapshotting is off. The
+    counters therefore summed over 250-round windows: every training curve came
+    out a sawtooth, and ``survived`` latched to 1 for the rest of each window.
+    Nothing errored, and the saved table was unaffected, so only the reported
+    numbers were wrong.
+    """
+    agent, train = ql_agent
+    # Snapshotting off and a checkpoint cadence this round is not a multiple of,
+    # which is exactly the case that used to skip the reset entirely.
+    agent.config.snapshot_dir = ""
+    agent.config.checkpoint_every = 250
+
+    arena = build_arena()
+    for round_number in (1, 2, 3):
+        state = make_state(1, coins=((1, 2),))
+        train.game_events_occurred(
+            agent, state, "DOWN", make_state(2, position=(1, 2)), [e.MOVED_DOWN, e.COIN_COLLECTED]
+        )
+        train.end_of_round(agent, make_state(2, position=(1, 2)), "DOWN", [e.SURVIVED_ROUND])
+        agent.round_index = round_number
+
+        row = last_metrics_row(agent)
+        assert int(row["coins"]) == 1, (
+            f"round {round_number} reported {row['coins']} coins; counters are accumulating"
+        )
+        # Two, because game_events_occurred and end_of_round each count a step.
+        # Constant across rounds is the point: accumulating would give 2, 4, 6.
+        assert int(row["steps"]) == 2, f"round {round_number} reported {row['steps']} steps"

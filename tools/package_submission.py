@@ -35,9 +35,20 @@ from typing import List
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
-#: Never shipped.
-EXCLUDED_DIRS = {"__pycache__", "logs", ".ipynb_checkpoints", ".pytest_cache"}
+#: Never shipped. `checkpoints` holds the training snapshots: they are training
+#: output, not inference input, and including them made the PPO archive 2.1 GB.
+EXCLUDED_DIRS = {
+    "__pycache__",
+    "logs",
+    "checkpoints",
+    ".ipynb_checkpoints",
+    ".pytest_cache",
+}
 EXCLUDED_SUFFIXES = {".pyc", ".pyo", ".log", ".tmp"}
+
+#: An archive larger than this is a packaging mistake, not a big model. The
+#: largest thing we legitimately ship is a single `policy.pt` at ~19 MB.
+MAX_ARCHIVE_MB = 50.0
 
 #: Modules the framework itself provides at the repository root, so an agent may
 #: import them even though they are not inside its directory.
@@ -113,6 +124,24 @@ def check_absolute_paths(files: List[Path]) -> List[str]:
     return problems
 
 
+def check_archive_size(files: List[Path]) -> List[str]:
+    """Flag an archive that is far larger than a trained agent needs to be.
+
+    The failure this catches: a stray directory of training snapshots sweeping
+    into the zip. Measured before the `checkpoints` exclusion existed, the PPO
+    archive was 2149 MB, of which 2130 MB was 111 snapshots.
+    """
+    total_mb = sum(f.stat().st_size for f in files) / 1e6
+    if total_mb <= MAX_ARCHIVE_MB:
+        return []
+    largest = sorted(files, key=lambda f: f.stat().st_size, reverse=True)[:3]
+    listing = ", ".join(f"{f.name} ({f.stat().st_size / 1e6:.0f} MB)" for f in largest)
+    return [
+        f"uncompressed size {total_mb:.0f} MB exceeds {MAX_ARCHIVE_MB:.0f} MB; "
+        f"largest entries: {listing}"
+    ]
+
+
 def check_model_present(agent_dir: Path, files: List[Path]) -> List[str]:
     models = [f for f in files if f.suffix in MODEL_SUFFIXES and f.name != "config.json"]
     if not models:
@@ -170,6 +199,7 @@ def main(argv=None) -> int:
         check_required_callbacks(agent_dir)
         + check_imports(files)
         + check_absolute_paths(files)
+        + check_archive_size(files)
     )
     warnings = check_model_present(agent_dir, files)
 

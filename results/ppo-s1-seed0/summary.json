@@ -1,0 +1,7 @@
+{
+  "run_id": "ppo-s1-seed0",
+  "stage": "task1-coin-heaven",
+  "total_steps": 2998272,
+  "episodes": 9580,
+  "elapsed_seconds": 3181.342903212877
+}

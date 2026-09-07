@@ -81,6 +81,12 @@ def setup_training(self):
     self.q.metadata.update(
         variant=self.config.variant,
         use_symmetry=self.config.use_symmetry,
+        # A table trained behind the `hard` mask never sees the consequences of
+        # a no-escape bomb, so it never learns to avoid one: replayed under
+        # `soft` it suicides every round (measured: 38.7 coins under `hard`,
+        # 1.35 under `soft`). The mask is part of the trained policy, so it
+        # travels with the table.
+        safety_mode=self.config.safety_mode,
         gamma=self.config.gamma,
         n_step=self.config.n_step,
         double_q=self.config.double_q,
@@ -315,6 +321,11 @@ def _finish_round(self, events, round_number: int) -> None:
         )
         _write_snapshot(self)
 
+    # Every round, not just on checkpoint rounds. These counters are per-round
+    # metrics; resetting them on the checkpoint cadence turned every training
+    # curve into a sawtooth and latched `survived` to 1.
+    _reset_round_stats(self)
+
 
 def _write_snapshot(self) -> None:
     """Keep a dated copy so the best table can be chosen after the fact.
@@ -330,8 +341,6 @@ def _write_snapshot(self) -> None:
         self.q.save(directory / f"q_table_r{self.round_index:06d}.pkl")
     except Exception as error:  # noqa: BLE001 - snapshotting must not kill training
         self.logger.warning(f"Could not write snapshot: {error}")
-
-    _reset_round_stats(self)
 
 
 def _check_for_divergence(self) -> None:

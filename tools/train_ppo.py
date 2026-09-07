@@ -15,16 +15,25 @@ to use several GPUs here is to run several independent seeds or hyperparameter
 configurations at once (``--device cuda:N --seed S``), not to shard one tiny
 network across them.
 
+Checkpoints go to ``agent_code/attackontensor_ppo/checkpoints/<run-id>/``, never
+straight to ``policy.pt``, so parallel runs cannot overwrite one another and an
+exploratory run cannot replace the artifact the tournament agent loads. After
+training, the snapshots are scored on held-out seeds; ``--promote`` copies the
+winner into ``policy.pt``.
+
 Examples::
 
     python tools/train_ppo.py --stage 1 --workers 8 --total-steps 500000
     python tools/train_ppo.py --stage 4 --workers 16 --device cuda:0 --wandb
+    python tools/train_ppo.py --stage 4 --workers 16 --promote --benchmark-seeds 30
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import os
+import shutil
 import sys
 import time
 from pathlib import Path
@@ -37,11 +46,12 @@ sys.path.insert(0, str(REPO_ROOT))
 import torch  # noqa: E402
 
 from agent_code.attackontensor_ppo import tensorizer as T  # noqa: E402
-from agent_code.attackontensor_ppo.config import PPOConfig  # noqa: E402
+from agent_code.attackontensor_ppo.config import AGENT_DIR, PPOConfig  # noqa: E402
 from agent_code.attackontensor_ppo.kit.actions import ACTIONS  # noqa: E402
 from agent_code.attackontensor_ppo.network import build_network  # noqa: E402
 from agent_code.attackontensor_ppo.ppo import PPOLearner, RolloutBuffer, compute_gae  # noqa: E402
-from blib.curriculum import STAGES, describe_stage, get_stage  # noqa: E402
+from blib.benchmark import MatchConfig, benchmark_fast, format_table  # noqa: E402
+from blib.curriculum import STAGES, describe_stage, get_stage, report_gate  # noqa: E402
 from blib.factories import make_ppo_reward_fn, make_ppo_transform  # noqa: E402
 from blib.paths import display_path  # noqa: E402
 from blib.seeding import seed_everything  # noqa: E402
@@ -69,6 +79,15 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--log-every", type=int, default=1, help="iterations")
     parser.add_argument("--run-id", default=None)
     parser.add_argument("--wandb", action="store_true")
+    parser.add_argument("--select-seeds", type=int, default=12,
+                        help="held-out seeds used to score each snapshot")
+    parser.add_argument("--no-select-best", action="store_true",
+                        help="skip scoring the snapshots after training")
+    parser.add_argument("--promote", action="store_true",
+                        help="copy the winning snapshot over policy.pt, the "
+                             "artifact the tournament agent loads")
+    parser.add_argument("--benchmark-seeds", type=int, default=0,
+                        help="if set, evaluate the promoted policy and print the stage gate")
     parser.add_argument("--serial", action="store_true",
                         help="use DummyVecEnv (no processes) for debugging")
     return parser
@@ -101,8 +120,15 @@ def main(argv=None) -> int:
     # also fan out across cores would fight the environment workers for them.
     torch.set_num_threads(max(1, min(4, args.workers)))
 
+    # Snapshots live under the run id, so concurrent runs cannot overwrite each
+    # other and an exploratory run cannot clobber policy.pt. Promotion into
+    # policy.pt is a separate, explicit step (--promote).
+    checkpoint_dir = AGENT_DIR / "checkpoints" / run_id
+    checkpoint_dir.mkdir(parents=True, exist_ok=True)
+
     print(describe_stage(stage))
     print(f"\nrun_id={run_id}  workers={args.workers}  device={args.device}")
+    print(f"checkpoints={display_path(checkpoint_dir)}")
     print(f"observation={config.observation} shape={T.observation_shape(config)} "
           f"safety={config.safety_mode}\n")
 
@@ -251,13 +277,15 @@ def main(argv=None) -> int:
                 )
 
             if iteration % args.checkpoint_every == 0:
-                learner.save(config.model_path, extra={"run_id": run_id, "iteration": iteration})
-                print(f"  checkpoint -> {config.model_path.name}")
+                snapshot = checkpoint_dir / f"policy_it{iteration:06d}.pt"
+                learner.save(snapshot, extra={"run_id": run_id, "iteration": iteration})
+                print(f"  checkpoint -> {snapshot.name}")
 
     except KeyboardInterrupt:
         print("\nInterrupted; saving before exit.")
     finally:
-        learner.save(config.model_path, extra={"run_id": run_id})
+        final_path = checkpoint_dir / "policy_final.pt"
+        learner.save(final_path, extra={"run_id": run_id})
         logger.close()
         envs.close()
 
@@ -272,9 +300,105 @@ def main(argv=None) -> int:
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(json.dumps(summary, indent=2))
 
-    print(f"\nSaved {display_path(config.model_path)}")
+    print(f"\nSaved {display_path(final_path)}")
+
+    best = final_path
+    if not args.no_select_best:
+        best = select_best_checkpoint(args, stage, checkpoint_dir, run_dir=output.parent)
+
+    if args.promote:
+        shutil.copy2(best, config.model_path)
+        print(f"Promoted {best.name} -> {display_path(config.model_path)}")
+        if args.benchmark_seeds:
+            evaluate_promoted(args, stage, output.parent)
+    else:
+        print(f"\npolicy.pt untouched. To ship this run:\n"
+              f"  cp {display_path(best)} {display_path(config.model_path)}")
+
     print(f"Results under results/{run_id}/")
     return 0
+
+
+#: Selection runs on its own seeds, so a snapshot is not chosen on the same
+#: arenas it is later reported on.
+SELECTION_BASE_SEED = 883_000_2
+
+
+def select_best_checkpoint(args, stage, checkpoint_dir: Path, run_dir: Path) -> Path:
+    """Score every snapshot on held-out seeds and return the best.
+
+    The policy a PPO run ends on is not reliably the best one it passed through,
+    for the same reason it is not for the Q-learning table. Scoring the saved
+    artifacts is the only way to find that out.
+    """
+    snapshots = sorted(checkpoint_dir.glob("policy_it*.pt"))
+    final_path = checkpoint_dir / "policy_final.pt"
+    if final_path.is_file():
+        snapshots.append(final_path)
+
+    if len(snapshots) < 2:
+        print("Only one checkpoint; skipping selection.")
+        return snapshots[0] if snapshots else final_path
+
+    print(f"\nScoring {len(snapshots)} checkpoints on {args.select_seeds} held-out seeds...")
+    agent = "attackontensor_ppo"
+    # Training order, final policy last, so the index stands in for how much
+    # training a snapshot carries and breaks ties toward the more trained one.
+    results = []
+    for index, path in enumerate(snapshots):
+        # The agent reads its weights path from the environment, so each
+        # candidate is evaluated through the ordinary inference path.
+        # Resolved, not relative: model_path is AGENT_DIR / model_file, so a
+        # relative value silently resolves under the agent directory and the
+        # agent plays from an empty table with only a log line.
+        os.environ["AOT_PPO_MODEL_FILE"] = str(path.resolve())
+        summary = benchmark_fast(
+            MatchConfig(
+                agents=[agent, *stage.opponents],
+                scenario=stage.scenario,
+                n_seeds=args.select_seeds,
+                base_seed=SELECTION_BASE_SEED,
+                track_latency=False,
+            )
+        )
+        values = summary["per_agent"][f"{agent}_0"]
+        key = (values.get("score_mean", 0.0), values.get("survival_rate", 0.0), index)
+        results.append((key, path, values))
+        print(f"  {path.name:<26} score={values.get('score_mean', 0):6.2f} "
+              f"surv={values.get('survival_rate', 0):5.1%} "
+              f"suic={values.get('suicide_rate', 0):5.2f}")
+
+    os.environ.pop("AOT_PPO_MODEL_FILE", None)
+    results.sort(key=lambda item: item[0], reverse=True)
+    best_key, best_path, _ = results[0]
+    print(f"  -> best {best_path.name} (score {best_key[0]:.2f})")
+
+    run_dir.mkdir(parents=True, exist_ok=True)
+    (run_dir / "checkpoint_selection.json").write_text(
+        json.dumps(
+            [{"checkpoint": p.name, "score": k[0], "survival": k[1]} for k, p, _ in results],
+            indent=2,
+        )
+    )
+    return best_path
+
+
+def evaluate_promoted(args, stage, run_dir: Path) -> None:
+    """Score policy.pt on the reporting seeds and print the stage gate."""
+    agent = "attackontensor_ppo"
+    print(f"\nEvaluating promoted policy over {args.benchmark_seeds} seeds...")
+    summary = benchmark_fast(
+        MatchConfig(
+            agents=[agent, *stage.opponents],
+            scenario=stage.scenario,
+            n_seeds=args.benchmark_seeds,
+        )
+    )
+    print()
+    print(format_table(summary))
+    print()
+    print(report_gate(stage, summary["per_agent"][f"{agent}_0"]))
+    (run_dir / "benchmark.json").write_text(json.dumps(summary, indent=2, default=str))
 
 
 if __name__ == "__main__":

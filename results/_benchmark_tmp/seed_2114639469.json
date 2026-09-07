@@ -1,0 +1,44 @@
+{
+    "by_agent": {
+        "attackontensor_ql": {
+            "bombs": 42,
+            "coins": 6,
+            "crates": 72,
+            "invalid": 1,
+            "kills": 1,
+            "moves": 226,
+            "rounds": 1,
+            "score": 11,
+            "steps": 311,
+            "time": 0.45777320861816406
+        },
+        "coin_collector_agent": {
+            "bombs": 16,
+            "coins": 3,
+            "crates": 59,
+            "invalid": 1,
+            "moves": 133,
+            "rounds": 1,
+            "score": 3,
+            "steps": 150,
+            "suicides": 1,
+            "time": 0.34167933464050293
+        },
+        "peaceful_agent": {
+            "invalid": 166,
+            "moves": 134,
+            "rounds": 1,
+            "score": 0,
+            "steps": 300,
+            "time": 0.11694693565368652
+        }
+    },
+    "by_round": {
+        "Round 01 (2026-09-07 23-12-12)": {
+            "coins": 9,
+            "kills": 1,
+            "steps": 311,
+            "suicides": 1
+        }
+    }
+}

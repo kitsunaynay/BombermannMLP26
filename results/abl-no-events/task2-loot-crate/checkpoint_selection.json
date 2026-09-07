@@ -1,0 +1,67 @@
+[
+  {
+    "checkpoint": "q_table_r002750.pkl",
+    "score": 25.25,
+    "survival": 1.0
+  },
+  {
+    "checkpoint": "q_table_r001500.pkl",
+    "score": 21.5,
+    "survival": 0.9166666666666666
+  },
+  {
+    "checkpoint": "q_table_r001000.pkl",
+    "score": 17.583333333333332,
+    "survival": 1.0
+  },
+  {
+    "checkpoint": "q_table_r002500.pkl",
+    "score": 11.833333333333334,
+    "survival": 1.0
+  },
+  {
+    "checkpoint": "q_table_r002250.pkl",
+    "score": 11.0,
+    "survival": 0.8333333333333334
+  },
+  {
+    "checkpoint": "q_table_r002000.pkl",
+    "score": 9.666666666666666,
+    "survival": 0.75
+  },
+  {
+    "checkpoint": "q_table_r001750.pkl",
+    "score": 7.0,
+    "survival": 0.75
+  },
+  {
+    "checkpoint": "q_table_r001250.pkl",
+    "score": 5.166666666666667,
+    "survival": 0.9166666666666666
+  },
+  {
+    "checkpoint": "q_table.pkl",
+    "score": 1.6666666666666667,
+    "survival": 1.0
+  },
+  {
+    "checkpoint": "q_table_r003000.pkl",
+    "score": 1.6666666666666667,
+    "survival": 1.0
+  },
+  {
+    "checkpoint": "q_table_r000750.pkl",
+    "score": 0.25,
+    "survival": 1.0
+  },
+  {
+    "checkpoint": "q_table_r000500.pkl",
+    "score": 0.0,
+    "survival": 1.0
+  },
+  {
+    "checkpoint": "q_table_r000250.pkl",
+    "score": 0.0,
+    "survival": 1.0
+  }
+]

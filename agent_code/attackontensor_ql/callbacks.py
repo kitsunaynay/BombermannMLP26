@@ -31,7 +31,8 @@ state_to_features = F.state_to_features
 def setup(self):
     """Called once before the first round; no time limit applies here."""
     self.config = QLConfig.load()
-    self.rng = np.random.default_rng()
+    seed = self.config.rng_seed
+    self.rng = np.random.default_rng(seed)
 
     path = self.config.model_path
     if self.train:
@@ -40,17 +41,21 @@ def setup(self):
         # force a cold start.
         self.q = _load_or_create(self, path)
     elif path.is_file():
-        self.q = QTable.load(path)
+        self.q = QTable.load(path, seed=seed)
         _adopt_checkpoint_representation(self)
         self.logger.info(f"Loaded Q-table from {path} ({self.q.n_states} states)")
     else:
         # Never crash for a missing checkpoint: an untrained agent that plays
         # badly still completes the graders' submission test, a crashing one
         # does not.
-        self.logger.warning(f"No Q-table at {path}; playing from an empty table.")
+        # Deliberately not a crash: an untrained agent that plays badly still
+        # completes the graders' submission test. But log it at error level,
+        # because in evaluation this means every action is a random tie-break.
+        self.logger.error(f"No Q-table at {path}; playing from an empty table.")
         self.q = QTable(
             optimistic_init=self.config.optimistic_init,
             double=self.config.double_q,
+            seed=seed,
         )
 
     self.round_index = 0
@@ -72,10 +77,16 @@ def _adopt_checkpoint_representation(self) -> None:
     returns a fresh row and the agent plays untrained without erroring. The
     tournament sets no environment variables, so the config would otherwise fall
     back to defaults and hit exactly that. The checkpoint is the authority.
+
+    ``safety_mode`` is adopted for a different reason: it is not part of the key,
+    but it is part of the trained policy. A table trained behind the ``hard``
+    mask never sees a no-escape bomb drop, so it never learns to avoid one.
+    Replayed under ``soft`` the same table went from 38.7 coins and 0% suicide
+    to 1.35 coins and 100% suicide.
     """
     metadata = getattr(self.q, "metadata", {}) or {}
 
-    for field in ("variant", "use_symmetry"):
+    for field in ("variant", "use_symmetry", "safety_mode"):
         stored = metadata.get(field)
         if stored is None:
             continue
@@ -111,23 +122,41 @@ def _adopt_checkpoint_representation(self) -> None:
 
 
 def _load_or_create(self, path) -> QTable:
+    seed = self.config.rng_seed
     if not path.is_file():
         self.logger.info("Starting from a fresh Q-table.")
         return QTable(
             optimistic_init=self.config.optimistic_init,
             double=self.config.double_q,
+            seed=seed,
         )
     try:
-        table = QTable.load(path)
+        table = QTable.load(path, seed=seed)
         self.logger.info(f"Resuming training from {path} ({table.n_states} states)")
         # A curriculum stage may change the variant on purpose (compact for
         # Tasks 1-2, full for 3-4), so warn rather than adopt: when resuming, the
         # caller's choice wins but the key mismatch is still worth flagging.
-        stored = (table.metadata or {}).get("variant")
-        if stored is not None and stored != self.config.variant:
+        metadata = table.metadata or {}
+
+        # Both of these decide what a key *means*, so a mismatch makes the
+        # resumed entries unreachable rather than wrong. Warn on either.
+        for field, live in (("variant", self.config.variant),
+                            ("use_symmetry", self.config.use_symmetry)):
+            stored = metadata.get(field)
+            if stored is not None and stored != live:
+                self.logger.warning(
+                    f"Resuming a table trained with {field}={stored!r} under "
+                    f"{live!r}; previously learned states will not be reused."
+                )
+
+        # `double` comes back from the checkpoint, not from config, because two
+        # tables cannot be collapsed into one (or split) meaningfully. Say so,
+        # otherwise a --single-q run silently keeps learning double.
+        if table.double != self.config.double_q:
             self.logger.warning(
-                f"Resuming a table trained with variant={stored!r} under "
-                f"{self.config.variant!r}; previously learned states will not be reused."
+                f"Checkpoint was trained with double_q={table.double}; keeping that "
+                f"instead of the configured {self.config.double_q}. Train from "
+                "scratch to change it."
             )
         return table
     except Exception as error:  # noqa: BLE001 - a stale checkpoint must not abort training
@@ -135,6 +164,7 @@ def _load_or_create(self, path) -> QTable:
         return QTable(
             optimistic_init=self.config.optimistic_init,
             double=self.config.double_q,
+            seed=seed,
         )
 
 
@@ -199,7 +229,8 @@ def act(self, game_state: dict) -> str:
         self.round_index = game_state["round"]
         self._view_cache.clear()
 
-    epsilon = self.config.epsilon(self.round_index) if self.train else 0.0
+    epsilon = (self.config.epsilon(self.round_index) if self.train
+               else self.config.eval_epsilon)
 
     try:
         name, _, _ = choose_action(self, game_state, epsilon)

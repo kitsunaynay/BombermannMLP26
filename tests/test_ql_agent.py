@@ -433,3 +433,80 @@ def test_mixed_key_shapes_warn_rather_than_error(tmp_path, monkeypatch, caplog):
     assert not any(r.levelno >= _logging.ERROR for r in caplog.records), (
         "a partially usable table must not be reported as a total failure"
     )
+
+
+def test_safety_mode_travels_with_the_checkpoint(tmp_path, monkeypatch):
+    """A table must be replayed under the mask it was trained behind.
+
+    ``safety_mode`` is not part of the feature key, so it was not stamped into
+    the table and not adopted at load. But it is part of the trained policy: a
+    table trained behind ``hard`` never observes a no-escape bomb drop, because
+    the mask always removed it, so it never learns to avoid one. Replayed under
+    the default ``soft`` the same table went from 38.7 coins and 0% suicide to
+    1.35 coins and 100% suicide, and the ablation looked like the safety filter
+    causing suicide rather than preventing it.
+    """
+    from agent_code.attackontensor_ql import callbacks
+    from agent_code.attackontensor_ql.qtable import QTable
+
+    path = tmp_path / "q_table.pkl"
+    table = QTable(double=False, seed=0)
+    table.metadata.update(variant="full", use_symmetry=True, safety_mode="hard")
+    table.learn((0,) * 12, 0, 1.0, None, 0.0, 1.0)
+    table.save(path)
+
+    monkeypatch.setenv("AOT_QL_MODEL_FILE", str(path))
+    monkeypatch.setenv("AOT_QL_SAFETY_MODE", "soft")   # config disagrees
+
+    agent = SimpleNamespace(train=False, logger=logging.getLogger("test.safety"))
+    callbacks.setup(agent)
+
+    assert agent.config.safety_mode == "hard", (
+        "the checkpoint's safety_mode must win over the configured one"
+    )
+
+
+def test_seed_makes_the_agents_rng_reproducible(tmp_path, monkeypatch):
+    """``AOT_QL_SEED`` has to reach the table, not just ``self.rng``.
+
+    Every stochastic decision the agent makes -- the epsilon-greedy draw, the
+    greedy tie-break and the Double-Q coin flip -- comes from ``QTable._rng``,
+    which was constructed unseeded at all four call sites. Seeding only
+    ``self.rng`` in ``setup`` would look like it worked and change nothing, so
+    this pins the table's own stream.
+    """
+    from agent_code.attackontensor_ql import callbacks
+
+    def draws(seed):
+        monkeypatch.setenv("AOT_QL_SEED", str(seed))
+        monkeypatch.setenv("AOT_QL_MODEL_FILE", str(tmp_path / "missing.pkl"))
+        agent = SimpleNamespace(train=False, logger=logging.getLogger("test.seed"))
+        callbacks.setup(agent)
+        # An empty table ties on every action, so greedy() is pure tie-break.
+        return [agent.q.greedy((0,) * 12) for _ in range(24)]
+
+    assert draws(11) == draws(11)
+    assert draws(11) != draws(12), "different seeds must give different streams"
+
+
+def test_the_tournament_default_leaves_the_agent_unseeded():
+    """The default must stay unseeded: a fixed seed in the tournament would make
+    the agent play the identical tie-break sequence in every game.
+    """
+    assert QLConfig().seed == -1
+    assert QLConfig().rng_seed is None
+
+
+def test_evaluation_is_greedy_by_default(tmp_path, monkeypatch):
+    """`eval_epsilon` must default to 0.
+
+    Evaluation noise was measured as a possible escape from greedy limit cycles
+    and rejected: on collapsed Task-2 checkpoints it roughly doubled coins
+    (2.75 -> 6.60) but drove survival from 100% to 85% at eps = 0.02 and to 20%
+    at eps = 0.10, because a random action beside a live bomb is fatal. The knob
+    stays for reproducing that measurement; the default must not change.
+    """
+    assert QLConfig().eval_epsilon == 0.0
+
+    monkeypatch.setenv("AOT_QL_EVAL_EPSILON", "0.05")
+    assert QLConfig.load().eval_epsilon == pytest.approx(0.05)
