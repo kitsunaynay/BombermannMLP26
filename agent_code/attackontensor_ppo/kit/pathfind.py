@@ -156,6 +156,35 @@ def _augment_danger_with_bomb(
     return augmented
 
 
+def augment_danger_with_threats(
+    field: np.ndarray,
+    danger: np.ndarray,
+    threats: Iterable[Coord],
+) -> np.ndarray:
+    """Danger map assuming every tile in ``threats`` bombs on this step.
+
+    The escape search otherwise certifies a plan against the bombs visible when
+    it commits, and an opponent that drops a bomb one step later can cover the
+    escape tile. Measured on `classic` with the stage-3 table: opponents that
+    block but never bomb cause 0.00 suicides, opponents that bomb cause 0.38.
+
+    Timing matches :func:`_augment_danger_with_bomb`: a bomb dropped on move 0
+    detonates at the end of move ``s.BOMB_TIMER``.
+    """
+    detonation = int(s.BOMB_TIMER)
+    augmented = None
+    for tx, ty in threats:
+        if not in_bounds(field, tx, ty):
+            continue
+        for cx, cy in blast_coords(field, tx, ty):
+            if detonation < danger[cx, cy]:
+                if augmented is None:
+                    augmented = danger.copy()
+                if detonation < augmented[cx, cy]:
+                    augmented[cx, cy] = detonation
+    return danger if augmented is None else augmented
+
+
 def survives_after(
     field: np.ndarray,
     start: Coord,
@@ -163,6 +192,7 @@ def survives_after(
     danger: np.ndarray,
     passable: np.ndarray,
     horizon: int = SURVIVAL_HORIZON,
+    threats: Sequence[Coord] = (),
 ) -> bool:
     """Does a follow-up plan exist that keeps us alive after taking ``action``?
 
@@ -173,10 +203,13 @@ def survives_after(
     Success is surviving to ``horizon``, or reaching a tile no known bomb
     threatens, from where waiting is safe.
 
-    Only currently-visible bombs are modelled; opponents dropping new bombs
-    later is out of scope.
+    Only currently-visible bombs are modelled unless ``threats`` is given, in
+    which case each listed tile is treated as bombing on this step.
     """
     sx, sy = start
+
+    if threats:
+        danger = augment_danger_with_threats(field, danger, threats)
 
     if action == BOMB:
         working_danger = _augment_danger_with_bomb(field, danger, sx, sy)
@@ -240,6 +273,7 @@ def safe_actions(
     passable: np.ndarray,
     bomb_available: bool = True,
     horizon: int = SURVIVAL_HORIZON,
+    threats: Sequence[Coord] = (),
 ) -> np.ndarray:
     """Boolean mask over :data:`kit.actions.ACTIONS` of non-suicidal actions.
 
@@ -249,6 +283,8 @@ def safe_actions(
     """
     mask = np.zeros(N_ACTIONS, dtype=bool)
     sx, sy = start
+    if threats:
+        danger = augment_danger_with_threats(field, danger, threats)
     no_threat = bool(np.all(danger == SAFE))
 
     for action in range(N_ACTIONS):
@@ -273,9 +309,10 @@ def has_escape_after_bomb(
     danger: np.ndarray,
     passable: np.ndarray,
     horizon: int = SURVIVAL_HORIZON,
+    threats: Sequence[Coord] = (),
 ) -> bool:
     """Can we drop a bomb here and still get away? The anti-suicide primitive."""
-    return survives_after(field, start, BOMB, danger, passable, horizon)
+    return survives_after(field, start, BOMB, danger, passable, horizon, threats)
 
 
 def escape_direction(
@@ -297,6 +334,17 @@ def escape_direction(
     if len(safe_x) == 0:
         return 0
     return direction_to_nearest(dist, first_step, zip(safe_x.tolist(), safe_y.tolist()))
+
+
+def armed_opponents(game_state: dict) -> List[Coord]:
+    """Positions of opponents that could drop a bomb on this step.
+
+    Reads the third field of each ``others`` entry, which the framework sets to
+    the same ``bombs_left`` flag it reports for us. An opponent with a bomb
+    already ticking cannot drop another, so excluding those keeps the
+    pessimistic danger map from being needlessly wide.
+    """
+    return [xy for (_, _, bomb_available, xy) in game_state["others"] if bomb_available]
 
 
 def game_state_context(game_state: dict):

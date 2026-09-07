@@ -113,6 +113,15 @@ class QLConfig:
     # --- safety filter -------------------------------------------------------
     safety_mode: str = "soft"  # none | soft | hard
 
+    # Treat every armed opponent as bombing from where it stands when the
+    # `hard` escape search plans. Ignored by `none` and `soft`, which do not
+    # plan. Off by default so it can be measured as an ablation arm.
+    #
+    # Motivation: with opponents that block but never bomb the agent suicides
+    # 0.00 of 40 rounds on `classic`; with opponents that bomb, 0.38. The
+    # escape plan is certified against the bombs visible when it commits.
+    opponent_bomb_lookahead: bool = False
+
     # --- reward shaping ------------------------------------------------------
     use_potential_shaping: bool = True
     use_custom_events: bool = True

@@ -20,7 +20,8 @@ Three modes, so the filter can be ablated rather than assumed to help:
     tile that is lethal at the end of this step. No search.
 ``hard``
     Adds a full time-indexed survival search, so it also removes actions from
-    which no escape plan exists, including bomb drops with no way out.
+    which no escape plan exists, including bomb drops with no way out. Given
+    ``threats``, the search also assumes those tiles bomb on this step.
 
 If every action is filtered out, death is unavoidable; the mask then falls back
 to the legal moves so the caller still has something to pick from.
@@ -28,7 +29,7 @@ to the legal moves so the caller still has something to pick from.
 
 from __future__ import annotations
 
-from typing import Tuple
+from typing import Sequence, Tuple
 
 import numpy as np
 
@@ -100,8 +101,15 @@ def action_mask(
     bomb_available: bool,
     mode: str = "soft",
     horizon: int = SURVIVAL_HORIZON,
+    threats: Sequence[Coord] = (),
 ) -> np.ndarray:
-    """Boolean mask over :data:`kit.actions.ACTIONS` for the requested mode."""
+    """Boolean mask over :data:`kit.actions.ACTIONS` for the requested mode.
+
+    ``threats`` lists tiles to treat as bombing on this step, which only
+    ``hard`` can act on because it is the only mode that plans ahead. It is
+    supplied by the caller rather than derived here so the pessimism is a
+    measurable switch rather than a property of the mode.
+    """
     if mode not in SAFETY_MODES:
         raise ValueError(f"Unknown safety mode {mode!r}; choose from {SAFETY_MODES}")
 
@@ -113,7 +121,17 @@ def action_mask(
     if mode == "soft":
         mask = certain_death_mask(field, position, danger, passable, bomb_available)
     else:  # hard
-        mask = safe_actions(field, position, danger, passable, bomb_available, horizon)
+        mask = safe_actions(
+            field, position, danger, passable, bomb_available, horizon, threats
+        )
+        if threats and not mask.any():
+            # Assuming every armed opponent bombs at once can leave nothing
+            # admissible. Fall back to the optimistic search rather than
+            # straight to `legal`: a plan that survives the visible bombs is
+            # still better than no plan at all.
+            mask = safe_actions(
+                field, position, danger, passable, bomb_available, horizon
+            )
 
     if mask.any():
         return mask

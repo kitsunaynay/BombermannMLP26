@@ -68,6 +68,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--gamma", type=float, default=0.95)
     parser.add_argument("--n-step", type=int, default=3)
     parser.add_argument("--safety-mode", choices=("none", "soft", "hard"), default="soft")
+    parser.add_argument("--opponent-bomb-lookahead", action="store_true",
+                        help="the hard escape search assumes every armed "
+                             "opponent bombs from where it stands. Only "
+                             "meaningful with --safety-mode hard.")
     parser.add_argument("--no-symmetry", action="store_true")
     parser.add_argument("--no-shaping", action="store_true")
     parser.add_argument("--no-custom-events", action="store_true")
@@ -127,6 +131,7 @@ def stage_environment(args, stage, run_dir: Path, work_dir: Path) -> dict:
         AOT_QL_GAMMA=str(args.gamma),
         AOT_QL_N_STEP=str(args.n_step),
         AOT_QL_SAFETY_MODE=args.safety_mode,
+        AOT_QL_OPPONENT_BOMB_LOOKAHEAD=str(args.opponent_bomb_lookahead).lower(),
         AOT_QL_USE_SYMMETRY=str(not args.no_symmetry).lower(),
         AOT_QL_USE_POTENTIAL_SHAPING=str(not args.no_shaping).lower(),
         AOT_QL_USE_CUSTOM_EVENTS=str(not args.no_custom_events).lower(),
@@ -268,6 +273,7 @@ def run_stage(args, stage, run_id: str) -> int:
     # benchmark run in *this* process, so without this they would evaluate every
     # arm under the default mask instead of the one it trained with.
     os.environ["AOT_QL_SAFETY_MODE"] = args.safety_mode
+    os.environ["AOT_QL_OPPONENT_BOMB_LOOKAHEAD"] = str(args.opponent_bomb_lookahead).lower()
     try:
         completed = subprocess.run(
             command, cwd=REPO_ROOT, env=stage_environment(args, stage, run_dir, work_dir)
@@ -342,6 +348,7 @@ def open_wandb(args, stage, run_id: str):
             "gamma": args.gamma, "n_step": args.n_step,
             "epsilon_start": args.epsilon_start, "epsilon_end": args.epsilon_end,
             "safety_mode": args.safety_mode,
+            "opponent_bomb_lookahead": args.opponent_bomb_lookahead,
             "symmetry": not args.no_symmetry,
             "potential_shaping": not args.no_shaping,
             "custom_events": not args.no_custom_events,

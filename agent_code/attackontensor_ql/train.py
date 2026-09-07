@@ -87,6 +87,9 @@ def setup_training(self):
         # 1.35 under `soft`). The mask is part of the trained policy, so it
         # travels with the table.
         safety_mode=self.config.safety_mode,
+        # Same reason as safety_mode: it changes which transitions the agent
+        # ever sees, so it is part of the trained policy, not a runtime knob.
+        opponent_bomb_lookahead=self.config.opponent_bomb_lookahead,
         gamma=self.config.gamma,
         n_step=self.config.n_step,
         double_q=self.config.double_q,

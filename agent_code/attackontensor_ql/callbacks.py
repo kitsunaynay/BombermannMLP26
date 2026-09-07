@@ -86,7 +86,7 @@ def _adopt_checkpoint_representation(self) -> None:
     """
     metadata = getattr(self.q, "metadata", {}) or {}
 
-    for field in ("variant", "use_symmetry", "safety_mode"):
+    for field in ("variant", "use_symmetry", "safety_mode", "opponent_bomb_lookahead"):
         stored = metadata.get(field)
         if stored is None:
             continue
@@ -195,6 +195,9 @@ def compute_mask(self, game_state: dict) -> np.ndarray:
     field, position, bomb_available, _, _, _, danger, passable = P.game_state_context(
         game_state
     )
+    threats = ()
+    if self.config.opponent_bomb_lookahead and self.config.safety_mode == "hard":
+        threats = P.armed_opponents(game_state)
     return safety.action_mask(
         field,
         position,
@@ -202,6 +205,7 @@ def compute_mask(self, game_state: dict) -> np.ndarray:
         passable,
         bomb_available,
         mode=self.config.safety_mode,
+        threats=threats,
     )
 
 

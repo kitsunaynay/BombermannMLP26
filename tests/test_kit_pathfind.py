@@ -188,3 +188,103 @@ def test_survival_fast_path_when_no_bombs_exist():
 
     assert mask[RIGHT] and mask[LEFT] and mask[WAIT]
     assert mask[BOMB], "corridor is long enough to run out of our own blast"
+
+
+# ---------------------------------------------------------------------------
+# Opponent-bomb lookahead (M2)
+# ---------------------------------------------------------------------------
+
+
+def test_threats_are_ignored_when_the_list_is_empty():
+    """The default path must be byte-identical to the pre-M2 behaviour."""
+    field = corridor(9)
+    danger = np.full(field.shape, G.SAFE, dtype=int)
+    passable = P.free_mask(field, [], [])
+
+    without = P.safe_actions(field, (1, 1), danger, passable, True)
+    with_empty = P.safe_actions(field, (1, 1), danger, passable, True, threats=())
+
+    assert np.array_equal(without, with_empty)
+
+
+def test_threat_blast_reaches_the_same_tiles_as_a_real_bomb():
+    field = corridor(9)
+    danger = np.full(field.shape, G.SAFE, dtype=int)
+
+    threatened = P.augment_danger_with_threats(field, danger, [(5, 1)])
+    own = P._augment_danger_with_bomb(field, danger, 5, 1)
+
+    assert np.array_equal(threatened, own)
+
+
+def test_threats_do_not_mutate_the_caller_s_danger_map():
+    field = corridor(9)
+    danger = np.full(field.shape, G.SAFE, dtype=int)
+    original = danger.copy()
+
+    P.augment_danger_with_threats(field, danger, [(5, 1)])
+
+    assert np.array_equal(danger, original)
+
+
+def test_an_out_of_range_threat_changes_nothing():
+    field = corridor(9)
+    danger = np.full(field.shape, G.SAFE, dtype=int)
+
+    # Far enough that its blast cannot reach the corridor we occupy.
+    augmented = P.augment_danger_with_threats(field, danger, [(9, 1)])
+
+    assert augmented[1, 1] == G.SAFE
+
+
+def test_a_threat_can_make_a_bomb_drop_unsurvivable():
+    """A dead-end short enough that our bomb alone is escapable, but not with
+    an opponent bombing the mouth of it at the same moment."""
+    field = corridor(s.BOMB_POWER + 3)
+    danger = np.full(field.shape, G.SAFE, dtype=int)
+    passable = P.free_mask(field, [], [])
+    start = (1, 1)
+
+    assert P.has_escape_after_bomb(field, start, danger, passable)
+
+    mouth = (s.BOMB_POWER + 3, 1)
+    assert not P.has_escape_after_bomb(
+        field, start, danger, passable, threats=[mouth]
+    )
+
+
+def test_armed_opponents_excludes_those_with_a_bomb_out():
+    state = {
+        "others": [
+            ("a", 0, True, (3, 3)),
+            ("b", 0, False, (5, 5)),
+            ("c", 0, True, (7, 7)),
+        ]
+    }
+
+    assert P.armed_opponents(state) == [(3, 3), (7, 7)]
+
+
+def test_hard_mask_falls_back_to_the_optimistic_search_when_threats_seal_everything():
+    """Assuming every armed opponent bombs at once can admit nothing. The mask
+    must then return the plan that survives the *visible* bombs, not collapse
+    all the way to the legal moves."""
+    from shared.kit import safety
+
+    field = corridor(s.BOMB_POWER + 3)
+    danger = np.full(field.shape, G.SAFE, dtype=int)
+    passable = P.free_mask(field, [], [])
+    start = (1, 1)
+
+    # Threats from both ends leave no admissible tile in the corridor.
+    threats = [(2, 1), (s.BOMB_POWER + 3, 1)]
+    pessimistic = P.safe_actions(field, start, danger, passable, True, threats=threats)
+    assert not pessimistic.any()
+
+    optimistic = P.safe_actions(field, start, danger, passable, True)
+    masked = safety.action_mask(
+        field, start, danger, passable, True, mode="hard", threats=threats
+    )
+
+    assert np.array_equal(masked, optimistic)
+    assert masked.any()
