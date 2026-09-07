@@ -3,14 +3,14 @@
 Everything here is shaped by the tournament's 0.5 s per-step budget on a single
 CPU thread:
 
-* ``torch.set_num_threads(config.torch_threads)`` -- the brief promises exactly
-  one thread, and letting torch spin up more would oversubscribe it and make
-  each call *slower*, not faster.
-* A warm-up forward pass in ``setup``. Torch defers a good deal of allocator and
-  kernel setup to the first real call; ``setup`` is untimed, ``act`` is not, so
-  that cost is paid up front rather than inside a timed step.
-* ``torch.inference_mode()`` around the forward pass -- no autograd graph is
-  built when we are only playing.
+* ``torch.set_num_threads(config.torch_threads)``: only one thread is
+  available, and letting torch spin up more oversubscribes it and makes each
+  call slower.
+* A warm-up forward pass in ``setup``. Torch defers allocator and kernel setup
+  to the first real call; ``setup`` is untimed and ``act`` is not, so that cost
+  is paid up front.
+* ``torch.inference_mode()`` around the forward pass, so no autograd graph is
+  built while playing.
 
 Weights load with ``map_location='cpu'`` so a GPU-trained checkpoint runs on the
 graders' CPU-only machine.
@@ -75,7 +75,7 @@ def _load_checkpoint(self, path) -> None:
     if None not in found and found != expected:
         raise ValueError(
             f"checkpoint was trained for input {found}, but the current config "
-            f"expects {expected} -- check `observation` and `ego_radius`"
+            f"expects {expected}; check `observation` and `ego_radius`"
         )
 
     self.network.load_state_dict(payload["state_dict"])

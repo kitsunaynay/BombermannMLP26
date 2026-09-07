@@ -8,10 +8,9 @@ surrogate objective
               \\mathrm{clip}(\\rho_t, 1-\\epsilon, 1+\\epsilon)\\hat A_t\\big)\\Big],
    \\qquad \\rho_t = \\frac{\\pi_\\theta(a_t|s_t)}{\\pi_{\\theta_{old}}(a_t|s_t)}
 
-The clip is what makes several gradient epochs per batch of experience safe: once
-the new policy has moved far enough that :math:`\\rho_t` leaves the trust region,
-the objective flattens and stops pulling further. Advantages come from GAE
-(Schulman et al., 2015),
+The clip allows several gradient epochs per batch: once the new policy moves far
+enough that :math:`\\rho_t` leaves the trust region, the objective flattens.
+Advantages come from GAE (Schulman et al., 2015),
 
 .. math::
    \\hat A_t = \\sum_{l \\ge 0} (\\gamma\\lambda)^l \\delta_{t+l},
@@ -24,9 +23,9 @@ The total loss adds a value term and an entropy bonus:
 .. math::
    L = -L^{CLIP} + c_v L^{VF} - c_e \\mathcal{H}[\\pi]
 
-Entropy collapse is the characteristic PPO failure here -- an agent that becomes
-certain too early stops discovering that bombs kill crates -- so entropy is
-logged every update and is one of the plan's failure detectors.
+Entropy collapse is the main failure mode here: an agent that becomes certain
+too early stops discovering that bombs kill crates. Entropy is logged every
+update as one of the failure detectors.
 """
 
 from __future__ import annotations

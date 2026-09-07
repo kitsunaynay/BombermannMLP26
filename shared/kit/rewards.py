@@ -1,30 +1,22 @@
 """Reward shaping primitives shared by both agents.
 
-The game's native reward is desperately sparse -- one point per coin, five per
-kill, nothing at all for the hundred navigation steps in between. The brief
-states plainly that most models will not converge on that alone, and warns
-about the classic trap: *"if you give a reward when your agent moves towards a
-coin, give a negative reward of the same (or higher) magnitude for moving away
-... Otherwise you create an incentive to move back and forth."*
-
-Two mechanisms, independently switchable so the report can attribute the effect
-of each.
+The native reward is sparse: one point per coin, five per kill, nothing for the
+hundred navigation steps in between. Two mechanisms add signal, switchable
+independently so each one's effect can be measured separately.
 
 **Potential-based shaping.** With
 
 .. math::  F(s, a, s') = \\gamma \\Phi(s') - \\Phi(s)
 
-Ng, Harada & Russell (1999) proved the optimal policy is unchanged for *any*
-potential :math:`\\Phi`. That is the paper the brief footnotes on page 10, and
-it is the principled answer to reward cycling: contributions around any loop
-telescope to zero, so pacing back and forth earns exactly nothing. Terminal
-states take :math:`\\Phi = 0`, the condition under which the result carries over
-to episodic tasks.
+Ng, Harada & Russell (1999) show the optimal policy is unchanged for any
+potential :math:`\\Phi`. It also addresses reward cycling, since contributions
+around a loop telescope to zero and pacing back and forth earns nothing.
+Terminal states take :math:`\\Phi = 0`, which is the condition for the result to
+carry over to episodic tasks.
 
-**Custom events.** Denser and easier to interpret, but *not* policy-invariant --
-these genuinely can bias the optimum, which is precisely why they are ablatable.
-Opposing pairs (toward/away, escaped/entered) are emitted symmetrically to keep
-the back-and-forth exploit closed.
+**Custom events.** Denser and easier to interpret, but not policy-invariant:
+these can bias the optimum, hence the switch. Opposing pairs (toward/away,
+escaped/entered) are emitted symmetrically so moving back and forth nets out.
 
 Weights live in each agent's own config; only the mechanics live here.
 """

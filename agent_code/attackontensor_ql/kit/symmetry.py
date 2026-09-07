@@ -8,11 +8,10 @@
 The Bomberman board is symmetric under the eight-element dihedral group: four
 rotations and four reflections. Two uses:
 
-* **Data augmentation** for PPO -- one rollout step becomes up to eight, which
-  the project brief explicitly suggests as a way to make learning faster.
-* **State canonicalisation** for the Q-table -- mapping each state to a fixed
-  representative of its orbit shrinks the table by up to 8x and lets experience
-  from one corner of the board transfer to the other three.
+* **Data augmentation** for PPO: one rollout step becomes up to eight.
+* **State canonicalisation** for the Q-table: mapping each state to a fixed
+  representative of its orbit shrinks the table by up to 8x and shares
+  experience between the four corners.
 
 Grids are indexed ``[x, y]`` to match ``game_state['field']``; stacked tensors
 are ``(C, X, Y)``. The action permutation for each transform is *derived* at

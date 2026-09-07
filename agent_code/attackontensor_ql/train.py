@@ -1,7 +1,7 @@
 """Training callbacks: n-step Q-learning updates.
 
-**The delivery quirk this file exists to handle.** Read ``do_step`` in
-environment.py:158 carefully:
+The final transition is delivered twice. From ``do_step`` in
+environment.py:158:
 
 .. code-block:: text
 
@@ -18,11 +18,11 @@ with ``SURVIVED_ROUND`` appended to the very same list object in between. An
 agent that **died** receives it only once, through ``end_of_round``, because
 ``send_game_events`` skips the dead (environment.py:469).
 
-Appending a transition in both callbacks therefore double-counts every
-surviving episode's final step. Instead we track the last step processed and,
-on a duplicate, credit only the newly appended events and close the episode.
+Appending in both callbacks would double-count every surviving episode's final
+step, so we track the last step processed and, on a duplicate, credit only the
+newly appended events and close the episode.
 
-Nothing here may import from the repository root beyond the framework's own
+Nothing here imports from the repository root beyond the framework's own
 ``events`` module: the graders copy this directory alone into their tree.
 """
 
@@ -77,7 +77,7 @@ def setup_training(self):
     # Stamp the representation onto the table so evaluation can restore it. The
     # tournament runs with no environment variables set, so without this a table
     # trained under the `compact` variant would be queried with `full`, every
-    # lookup would miss, and the agent would play as if untrained -- silently.
+    # lookup would miss, and the agent would play untrained without erroring.
     self.q.metadata.update(
         variant=self.config.variant,
         use_symmetry=self.config.use_symmetry,
@@ -91,7 +91,7 @@ def setup_training(self):
     self._last_events_len = 0
 
     # `self` is a SimpleNamespace the framework hands to every callback
-    # (agents.py:219), not an object of ours -- module functions take it as an
+    # (agents.py:219), not an object of ours, so module functions take it as an
     # explicit argument rather than being called as methods.
     _reset_round_stats(self)
 
@@ -102,9 +102,9 @@ def setup_training(self):
             with self._metrics_path.open("w", newline="") as stream:
                 csv.DictWriter(stream, fieldnames=METRIC_FIELDS).writeheader()
 
-    # The framework has no "training finished" hook -- end_of_round is the last
+    # The framework has no "training finished" hook; end_of_round is the last
     # callback it makes. Without this, a run whose round count is not a multiple
-    # of checkpoint_every would silently discard its most recent learning.
+    # of checkpoint_every discards its most recent learning.
     atexit.register(_save_on_exit, self)
 
     self.logger.info(
@@ -352,7 +352,7 @@ def _write_metrics(self, last_events) -> None:
         return
 
     # Coins and kills are the only scoring events, so this reproduces the
-    # framework's score exactly -- read from settings in case the values change.
+    # framework's score exactly; read from settings in case the values change.
     score = self._stats["coins"] * s.REWARD_COIN + self._stats["kills"] * s.REWARD_KILL
 
     row = {

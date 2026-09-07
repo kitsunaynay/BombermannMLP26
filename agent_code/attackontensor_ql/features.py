@@ -1,11 +1,8 @@
 """Discrete feature extraction for the tabular Q-learning agent.
 
-The brief is blunt about what wins this competition: *"It is very important to
-train your model with good features ... Spend time thinking and experimenting
-about how you can condense the most important information into a low-dimensional
-vector."* It names three categories, all of which appear below -- situational
-awareness (``neighbour_*``), pathfinding (``coin_dir``, ``crate_dir``), and
-life-saving (``danger_here``, ``escape_dir``, ``escape_if_bomb``).
+Three kinds of feature: situational awareness (``neighbour_*``), pathfinding
+(``coin_dir``, ``crate_dir``) and life-saving (``danger_here``, ``escape_dir``,
+``escape_if_bomb``).
 
 Every feature is a small non-negative integer, so a state is a tuple of ints and
 can key a dictionary directly. Cardinalities::
@@ -20,13 +17,11 @@ can key a dictionary directly. Cardinalities::
     opponent_near    3   none / within 3 / adjacent
     escape_if_bomb   2
 
-The full variant spans about 1.8M states, but only the reachable ones ever get
-allocated -- in practice 10^4..10^5. The compact variant is far smaller and is
-what Tasks 1-2 train on.
+The full variant spans about 1.8M states but only reachable ones get allocated,
+in practice 10^4..10^5. The compact variant is what Tasks 1-2 train on.
 
-``state_to_features`` is a pure function of ``game_state`` and is fully
-deterministic: the BFS in :mod:`kit.pathfind` expands neighbours in a fixed
-order, unlike the provided rule_based_agent's shuffled search.
+``state_to_features`` is pure and deterministic: the BFS in :mod:`kit.pathfind`
+expands neighbours in a fixed order.
 """
 
 from __future__ import annotations
@@ -149,22 +144,16 @@ def compute_all_features(game_state: dict) -> Dict[str, int]:
 # ---------------------------------------------------------------------------
 # D4 canonicalisation
 # ---------------------------------------------------------------------------
-# The brief suggests exploiting the board's rotational and mirror symmetries.
-# Mapping each state to a fixed representative of its symmetry orbit shrinks the
-# table by up to 8x and lets experience gathered in one corner transfer to the
-# other three. The policy is then queried in the canonical frame, so the chosen
-# action has to be mapped back with the inverse transform before it is returned.
+# Map each state to a fixed representative of its symmetry orbit. Shrinks the
+# table by up to 8x and shares experience between the four corners. The action
+# comes back in the canonical frame and needs the inverse transform applied.
 #
-# Scope of the guarantee. Canonicalisation is applied to the *feature tuple*,
-# and the direction features are exactly equivariant only when the nearest
-# target is unique. When two targets are equidistant in different directions the
-# tie has to be broken somehow, and no deterministic rule can break a symmetric
-# tie symmetrically -- so a pair of mirror-image boards may occasionally land on
-# different keys. That costs some sharing; it never costs correctness, because
-# for any single board the key and its transform are computed together and stay
-# mutually consistent. The realised reduction is measured, not assumed:
-# tests/test_ql_agent.py checks exact invariance on tie-free boards and a
-# substantial (not perfect) collapse on cluttered ones.
+# Canonicalisation acts on the feature tuple, and the direction features are
+# exactly equivariant only when the nearest target is unique. Equidistant
+# targets need a tie-break, and no deterministic rule breaks a symmetric tie
+# symmetrically, so mirrored boards can land on different keys. That costs some
+# sharing but never correctness: key and transform are computed together.
+# tests/test_ql_agent.py covers both cases.
 
 #: Direction-valued features, which rotate with the board.
 DIRECTION_FEATURES = ("coin_dir", "crate_dir", "escape_dir")

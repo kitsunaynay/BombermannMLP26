@@ -1,7 +1,7 @@
 """Hyperparameters for the feature-based Q-learning agent.
 
-The framework gives an agent no command line of its own -- ``main.py`` decides
-everything. So configuration arrives by two routes, both of which leave the
+The framework gives an agent no command line of its own; ``main.py`` decides
+everything. Configuration arrives by two routes, both of which leave the
 tournament-critical files untouched:
 
 * ``config.json`` next to this file, if it exists;
@@ -59,8 +59,8 @@ def default_event_rewards() -> Dict[str, float]:
     """Event rewards.
 
     Scaled so the game's own scoring (1 per coin, 5 per kill) stays dominant and
-    the auxiliary terms only break ties. The brief warns that auxiliary rewards
-    are absent in official games, so they must not overwhelm the real objective.
+    the auxiliary terms only break ties. Auxiliary rewards are absent in official
+    games, so they must not overwhelm the real objective.
     """
     return {
         # --- real game objectives -------------------------------------------
@@ -126,13 +126,11 @@ class QLConfig:
     checkpoint_every: int = 200
     metrics_file: str = ""  # empty disables the per-round CSV
 
-    # Directory for periodic snapshots kept alongside the live model. A constant
-    # learning rate makes tabular Q-values track a moving target rather than
-    # converge, so the policy at the *end* of a run is not reliably the best one
-    # the run produced -- measured on Task 2, the final table scored 16.3 coins
-    # where a mid-run table scored 24.9. Keeping snapshots lets
-    # tools/train_ql.py select on held-out seeds instead of trusting the last
-    # write. Empty disables snapshotting.
+    # Directory for periodic snapshots kept alongside the live model. With a
+    # constant learning rate the Q-values track a moving target instead of
+    # converging, so the table a run ends on is not reliably its best. Snapshots
+    # let tools/train_ql.py select on held-out seeds rather than trusting the
+    # last write. Empty disables snapshotting.
     snapshot_dir: str = "checkpoints"
 
     # -----------------------------------------------------------------------
@@ -150,9 +148,9 @@ class QLConfig:
         """Absolute path to the Q-table.
 
         Resolved from ``__file__`` rather than the process cwd. The framework
-        chdirs into the agent directory before each callback (agents.py:304), but
-        the training tools call in from the repository root, and the brief warns
-        that absolute paths baked in by hand break inside the grading container.
+        chdirs into the agent directory before each callback (agents.py:304) but
+        the training tools call in from the repository root. Hand-written
+        absolute paths break inside the grading container.
         """
         return AGENT_DIR / self.model_file
 

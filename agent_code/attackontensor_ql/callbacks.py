@@ -7,8 +7,8 @@ otherwise (agents.py:209-217).
 Acting happens in the *canonical* symmetry frame: features are reduced to a
 representative of their D4 orbit, the Q-table is queried there, and the chosen
 action is mapped back onto the real board with the inverse transform. Getting
-that round-trip wrong would make the agent play a mirrored version of a good
-policy, so :func:`tests.test_ql_agent` pins it down.
+that round-trip wrong makes the agent play a mirrored policy, so
+:func:`tests.test_ql_agent` pins it down.
 """
 
 from __future__ import annotations
@@ -68,11 +68,10 @@ def _adopt_checkpoint_representation(self) -> None:
 
     The feature variant and the symmetry flag both change what a key *is*. A
     table trained under ``compact`` produces 9-element keys; querying it with
-    ``full`` produces 12-element keys, which match nothing -- every lookup
-    returns a freshly initialised row and the agent plays as though untrained,
-    with no error anywhere. Since the tournament runs with no environment
-    variables set, the config would otherwise fall back to its defaults and hit
-    exactly that. The checkpoint is the authority.
+    ``full`` produces 12-element keys, which match nothing, so every lookup
+    returns a fresh row and the agent plays untrained without erroring. The
+    tournament sets no environment variables, so the config would otherwise fall
+    back to defaults and hit exactly that. The checkpoint is the authority.
     """
     metadata = getattr(self.q, "metadata", {}) or {}
 
@@ -99,7 +98,7 @@ def _adopt_checkpoint_representation(self) -> None:
         self.logger.error(
             f"No Q-table key has {expected} features (variant "
             f"'{self.config.variant}'); stored key shapes are {dict(lengths)}. "
-            "Every lookup will miss -- retrain or fix the variant."
+            "Every lookup will miss; retrain or fix the variant."
         )
     elif usable < total:
         # Resuming under a different variant leaves the old entries behind.
@@ -121,9 +120,9 @@ def _load_or_create(self, path) -> QTable:
     try:
         table = QTable.load(path)
         self.logger.info(f"Resuming training from {path} ({table.n_states} states)")
-        # A curriculum stage may deliberately change the variant (compact for
-        # Tasks 1-2, full for 3-4). Warn rather than adopt: when resuming, the
-        # caller's choice is intentional, but the key mismatch is worth flagging.
+        # A curriculum stage may change the variant on purpose (compact for
+        # Tasks 1-2, full for 3-4), so warn rather than adopt: when resuming, the
+        # caller's choice wins but the key mismatch is still worth flagging.
         stored = (table.metadata or {}).get("variant")
         if stored is not None and stored != self.config.variant:
             self.logger.warning(

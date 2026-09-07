@@ -5,22 +5,19 @@
 # --------------------------------------------------------------------------
 """Action masking / safety filtering.
 
-The project brief draws a line worth respecting: a submission that
-"deterministically returns the action which results in the best move" is not a
-learned model and is disallowed. So this module never *chooses* an action -- it
-only removes ones that are provably fatal, leaving the policy to learn which of
-the survivors is good. That distinction is what keeps the agent a learner rather
-than a rule-based player wearing a network.
+This module never chooses an action. It only removes ones that are provably
+fatal, leaving the policy to pick among the survivors, so the agent stays a
+learner rather than a rule-based player behind a network.
 
-Three modes, so the report can ablate the filter rather than assert it helps:
+Three modes, so the filter can be ablated rather than assumed to help:
 
 ``none``
-    No filtering whatsoever. The agent may walk into walls and into blasts, and
-    learns not to from the ``INVALID_ACTION`` penalty and from dying. This is
-    the honest baseline that demonstrates the model learns without a crutch.
+    No filtering. The agent may walk into walls and into blasts, and learns not
+    to from the ``INVALID_ACTION`` penalty and from dying. Baseline for the
+    ablation.
 ``soft`` (default)
     Removes only *certain, immediate* death: illegal moves, and moves onto a
-    tile that is lethal at the end of this very step. Cheap -- no search.
+    tile that is lethal at the end of this step. No search.
 ``hard``
     Adds a full time-indexed survival search, so it also removes actions from
     which no escape plan exists, including bomb drops with no way out.

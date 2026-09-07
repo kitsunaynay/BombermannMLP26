@@ -2,16 +2,13 @@
 
 The Q-learning agent compresses the board into a dozen hand-designed integers.
 This agent does the opposite: it hands the network an almost-raw spatial picture
-and lets the convolutions discover their own features, which is the approach the
-brief describes as "very powerful ... especially when it automatically learns
-the features".
+and lets the convolutions find their own features.
 
 Layout is ``(C, X, Y)`` with ``C = 13``, indexed the same way as
 ``game_state['field']``. Note the board is stored in image coordinates, so the
-array is the transpose of what the GUI shows -- the brief flags this too. Conv2d
-does not care which axis means what as long as the convention never changes, and
-keeping ``[x, y]`` throughout means channels can be filled straight from the
-state dictionary without transposing.
+array is the transpose of what the GUI shows. Conv2d does not care which axis
+means what as long as the convention holds, and keeping ``[x, y]`` throughout
+lets channels be filled straight from the state dictionary.
 
 ===  ====================================================================
 Ch   Contents
@@ -31,9 +28,9 @@ Ch   Contents
 12   round progress, step / MAX_STEPS (constant plane)
 ===  ====================================================================
 
-Channels 8 and 9 are the ones that matter most: they hand the network the
-timing information that :mod:`kit.geometry` derives, rather than making it
-rediscover blast propagation from raw bomb positions.
+Channels 8 and 9 pass in the timing information that :mod:`kit.geometry`
+derives, instead of making the network rediscover blast propagation from raw
+bomb positions.
 """
 
 from __future__ import annotations
@@ -149,7 +146,7 @@ def egocentric_crop(tensor: np.ndarray, x: int, y: int, radius: int) -> np.ndarr
 
     An egocentric view makes the policy translation-invariant, which usually
     learns faster, at the cost of hiding anything beyond the window. Whether
-    that trade pays off is an ablation, not an assumption -- hence the flag.
+    that trade pays off is an ablation, hence the flag.
     """
     channels = tensor.shape[0]
     padded = np.zeros(

@@ -1,24 +1,21 @@
 """Training callbacks: single-process PPO inside the framework.
 
-This is the spec-compliant training path -- the three callbacks the brief
-requires, driven by ``python main.py play --train 1``. It is correct but slow,
-because the framework's game loop is sequential Python. Serious runs use
-``tools/train_ppo.py``, which drives many copies of ``blib/fast_env.py`` in
-parallel and writes the same checkpoint format; the brief explicitly permits
-that ("multiprocessing or anything else that comes to your mind to improve
-training is perfectly fine") as long as the final agent is single-process.
+The three in-framework callbacks, driven by ``python main.py play --train 1``.
+Correct but slow, since the framework's game loop is sequential Python. Serious
+runs use ``tools/train_ppo.py``, which drives many copies of
+``blib/fast_env.py`` in parallel and writes the same checkpoint format. The
+submitted agent stays single-process either way.
 
-**The delivery quirk this file handles**, same as the Q-learning agent. On the
-last step of a round, ``do_step`` calls ``send_game_events`` and then
-``end_round`` (environment.py:174, 177). A *surviving* agent therefore receives
-the final transition twice -- once via ``game_events_occurred`` and again via
-``end_of_round``, with the same state and action, and with ``SURVIVED_ROUND``
-appended to the same list object in between. An agent that *died* receives it
-only once, through ``end_of_round``, because ``send_game_events`` skips the dead
-(environment.py:469). Appending in both places would double-count every
-surviving episode's final transition, so we track the last step processed.
+The final transition is delivered twice, same as the Q-learning agent. On the
+last step of a round ``do_step`` calls ``send_game_events`` and then
+``end_round`` (environment.py:174, 177), so a surviving agent gets that
+transition once via ``game_events_occurred`` and again via ``end_of_round``,
+with the same state and action and ``SURVIVED_ROUND`` appended to the same list
+in between. An agent that died gets it only once, through ``end_of_round``,
+because ``send_game_events`` skips the dead (environment.py:469). Appending in
+both places would double-count it, so we track the last step processed.
 
-Nothing here may import from the repository root beyond the framework's own
+Nothing here imports from the repository root beyond the framework's own
 modules: the graders copy this directory alone into their tree.
 """
 
@@ -150,7 +147,7 @@ def _step_data_for(self, game_state: dict, self_action: Optional[str]) -> dict:
 
     ``act`` stashes the observation, log-probability and value for each step, so
     the common path costs no extra forward pass. The fallback recomputes, which
-    only happens if ``act`` was skipped -- possible in principle when the
+    only happens if ``act`` was skipped, possible in principle when the
     framework drops a slow agent's turn (environment.py:457), though training
     runs with an infinite timeout.
     """

@@ -1,10 +1,9 @@
 """Actor-critic network.
 
-Sized against a hard constraint rather than for maximum capacity: the brief
-guarantees one thread of an AMD Ryzen 5 2600 and 0.5 s per decision, and an
-agent that overruns has its action replaced by ``WAIT`` *and* loses the excess
-from its next step's budget (environment.py:448). A slow network does not merely
-score badly, it plays a different, worse game.
+Sized for the tournament budget rather than maximum capacity: one CPU thread
+and 0.5 s per decision. An agent that overruns has its action replaced by
+``WAIT`` and loses the excess from its next step's budget
+(environment.py:448).
 
 Three 3x3 convolutions preserving spatial extent, then a shared dense trunk that
 forks into a policy head and a value head::
@@ -17,14 +16,12 @@ forks into a policy head and a value head::
                               |-> Linear(1)  state value
 
 On the full 17x17 board that is roughly 17M multiply-accumulates per forward
-pass, which measures in single-digit milliseconds single-threaded -- two orders
-of magnitude inside the budget. ``tools/latency_check.py`` verifies this rather
-than trusting the arithmetic.
+pass, single-digit milliseconds single-threaded. ``tools/latency_check.py``
+measures it rather than trusting the arithmetic.
 
-Initialisation follows the usual PPO recipe: orthogonal weights, with the policy
-head scaled down by 100x so the initial policy is near-uniform. Starting with
-confident-but-arbitrary logits is a reliable way to collapse entropy before any
-learning happens.
+Initialisation is the usual PPO recipe: orthogonal weights, policy head scaled
+down by 100x so the initial policy is near-uniform. Confident-but-arbitrary
+starting logits collapse entropy before any learning happens.
 """
 
 from __future__ import annotations

@@ -4,9 +4,8 @@ Two families of function live here.
 
 *Navigation* (:func:`bfs`, :func:`direction_to_nearest`) answers "which way do I
 step to approach the nearest coin/crate". This replaces ``look_for_targets``
-from the provided rule_based_agent, which shuffles its neighbour order and is
-therefore nondeterministic -- unusable as a feature for a learner, because the
-same state would yield different features on different calls.
+from the provided rule_based_agent, which shuffles its neighbour order and so
+returns different answers for the same state. That is unusable as a feature.
 
 *Survival* (:func:`survives_after`, :func:`safe_actions`) answers "if I take
 this action, does a sequence of follow-up moves exist that keeps me alive". A
@@ -56,8 +55,8 @@ def bfs(
 ) -> Tuple[np.ndarray, np.ndarray]:
     """Breadth-first search from ``start`` over ``passable`` tiles.
 
-    Neighbours are expanded in a fixed UP/RIGHT/DOWN/LEFT order, so the result
-    is deterministic -- the same game state always produces the same features.
+    Neighbours are expanded in a fixed UP/RIGHT/DOWN/LEFT order, so the same
+    game state always produces the same features.
 
     Returns ``(dist, first_step)`` where ``dist[x, y]`` is the number of moves
     to reach the tile (``-1`` if unreachable) and ``first_step[x, y]`` is the
@@ -166,11 +165,11 @@ def survives_after(
     admissible only if the tile is not lethal at that exact moment, using the
     interval test in :func:`kit.geometry.lethal_at`.
 
-    Success is declared either on surviving to ``horizon`` or on reaching a tile
-    no known bomb threatens -- from there, waiting forever is safe.
+    Success is surviving to ``horizon``, or reaching a tile no known bomb
+    threatens, from where waiting is safe.
 
-    Only currently-visible bombs are modelled. Opponents dropping new bombs in
-    the future is inherently unpredictable and deliberately out of scope.
+    Only currently-visible bombs are modelled; opponents dropping new bombs
+    later is out of scope.
     """
     sx, sy = start
 

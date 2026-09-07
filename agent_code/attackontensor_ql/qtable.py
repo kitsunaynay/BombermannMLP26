@@ -1,18 +1,16 @@
 """Sparse Q-table with optional Double Q-learning.
 
 Storage is a plain ``dict`` keyed by the feature tuple, holding a length-6
-float array of action values. Sparse rather than dense because the full feature
-variant spans ~1.8M states while only 10^4..10^5 are ever visited -- allocating
-the dense table would waste two orders of magnitude of memory for nothing.
+float array of action values. Sparse, not dense: the full feature variant spans
+~1.8M states and only 10^4..10^5 are ever visited.
 
-Deliberately *not* a ``defaultdict``: a ``defaultdict`` with a lambda factory
-cannot be pickled, and this table has to survive a checkpoint round-trip.
+Not a ``defaultdict``, because one with a lambda factory cannot be pickled and
+this table has to survive a checkpoint round-trip.
 
-Double Q-learning (van Hasselt, 2010) is available because plain Q-learning's
-``max`` operator biases values upward, and in a game where a single
-overestimated ``BOMB`` value means suicide, that bias is expensive. Two tables
-are kept; each update picks one at random, takes the greedy action from it, and
-evaluates that action with the other.
+Double Q-learning (van Hasselt, 2010) is available: plain Q-learning's ``max``
+biases values upward, and an overestimated ``BOMB`` value means suicide here.
+Two tables are kept; each update picks one at random, takes the greedy action
+from it and evaluates that action with the other.
 """
 
 from __future__ import annotations
@@ -47,11 +45,10 @@ class QTable:
         self.n_actions = n_actions
         self.optimistic_init = float(optimistic_init)
         self.double = bool(double)
-        # Describes the *representation* the keys were built from: the feature
-        # variant and whether symmetry canonicalisation was on. Both change the
-        # shape and meaning of a key, so a table loaded under a different
-        # representation would silently miss on every lookup and play as if
-        # untrained. Stored with the table so the two can never drift apart.
+        # Which representation the keys were built from: feature variant, and
+        # whether symmetry canonicalisation was on. Both change what a key means,
+        # so a table loaded under a different one misses every lookup and plays
+        # untrained. Stored with the table so they cannot drift apart.
         self.metadata: Dict[str, object] = dict(metadata or {})
         self._tables: Tuple[Dict[State, np.ndarray], ...] = tuple(
             {} for _ in range(2 if double else 1)
@@ -63,8 +60,8 @@ class QTable:
     def _row(self, table: Dict[State, np.ndarray], state: State) -> np.ndarray:
         row = table.get(state)
         if row is None:
-            # Optimistic initialisation encourages systematic exploration of
-            # untried actions without relying purely on epsilon-greedy noise.
+            # Optimistic init explores untried actions without relying purely
+            # on epsilon-greedy noise.
             row = np.full(self.n_actions, self.optimistic_init, dtype=np.float64)
             table[state] = row
         return row
@@ -122,7 +119,7 @@ class QTable:
         """Apply one (possibly n-step) Q-learning update. Returns the TD error.
 
         ``partial_return`` is the accumulated discounted reward over the backup
-        window and ``discount`` is ``gamma ** n`` -- pass ``0.0`` to make the
+        window and ``discount`` is ``gamma ** n``; pass ``0.0`` to make the
         update terminal, which is what ``end_of_round`` does.
         """
         self.visits(state)[action] += 1
@@ -157,7 +154,7 @@ class QTable:
     @property
     def n_states(self) -> int:
         """Distinct states seen. Linear growth in steps means the features are
-        too fine-grained to generalise -- one of the failure detectors."""
+        too fine-grained to generalise; one of the failure detectors."""
         seen = set()
         for table in self._tables:
             seen.update(table.keys())
@@ -247,11 +244,10 @@ class QTable:
     def key_lengths(self) -> Dict[int, int]:
         """How many stored keys have each length.
 
-        A table can legitimately hold more than one shape: resuming a run under
-        a different feature variant leaves the old entries in place while new
-        ones accumulate alongside. Those old entries are unreachable rather than
-        harmful, but sampling a single key -- as an earlier version of this did
-        -- reports a total mismatch when most lookups are in fact fine.
+        A table can hold more than one key shape: resuming under a different
+        feature variant leaves the old entries alongside the new ones. They are
+        unreachable rather than harmful, so count all shapes instead of sampling
+        one key, which would report a mismatch when most lookups are fine.
         """
         counts: Dict[int, int] = {}
         seen = set()

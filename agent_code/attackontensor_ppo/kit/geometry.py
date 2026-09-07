@@ -5,8 +5,8 @@
 # --------------------------------------------------------------------------
 """Blast geometry and danger accounting.
 
-The single most important thing to get right in this game is *when* a tile
-kills you. The framework resolves a step in this order (environment.py:158)::
+When a tile kills you follows from the step resolution order
+(environment.py:158)::
 
     poll_and_run_agents()   # every agent moves
     collect_coins()
@@ -14,9 +14,9 @@ kills you. The framework resolves a step in this order (environment.py:158)::
     update_bombs()          # bombs with timer <= 0 detonate NOW
     evaluate_explosions()   # agents standing in a live blast die
 
-So the agent moves *first* and the world resolves *after*. A bomb reported as
-``t = 0`` in ``game_state['bombs']`` detonates at the end of the very step you
-are currently deciding.
+The agent moves first and the world resolves after, so a bomb reported as
+``t = 0`` in ``game_state['bombs']`` detonates at the end of the step being
+decided now.
 
 This module encodes that as a single ``danger`` array with the semantics:
 

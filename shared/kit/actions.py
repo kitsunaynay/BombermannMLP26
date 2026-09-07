@@ -1,16 +1,15 @@
 """Canonical action vocabulary.
 
-Every module that indexes actions -- Q-table columns, policy logits, action
-masks, symmetry permutations -- imports the ordering from here. Defining it in
-exactly one place is what makes it impossible for a Q-table column and a policy
-logit to silently disagree about what index 3 means.
+Everything that indexes actions (Q-table columns, policy logits, action masks,
+symmetry permutations) takes the ordering from here, so a Q-table column and a
+policy logit cannot disagree about what index 3 means.
 
 The direction encoding used across the kit is::
 
     0 = none / stay      1 = UP      2 = RIGHT      3 = DOWN      4 = LEFT
 
-which is deliberately ``ACTIONS.index(name) + 1`` for the four movement
-actions, so converting between the two is a +/-1.
+which is ``ACTIONS.index(name) + 1`` for the four movement actions, so
+converting between the two is a +/-1.
 """
 
 from __future__ import annotations

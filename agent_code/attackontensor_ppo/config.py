@@ -2,8 +2,8 @@
 
 Same configuration route as the Q-learning agent: defaults here, overridden by
 ``config.json`` beside this file, overridden in turn by ``AOT_PPO_*``
-environment variables. Defaults are the *tournament* settings -- greedy action
-selection, single CPU thread, no training machinery.
+environment variables. Defaults are the tournament settings: single CPU thread,
+no training machinery.
 """
 
 from __future__ import annotations
@@ -85,14 +85,13 @@ class PPOConfig:
     #     sampling  31.56 coins  95% CI [29.6, 33.5]
     #     argmax    13.36 coins  95% CI [10.2, 16.7]
     #
-    # Non-overlapping intervals, a 2.4x difference. The cause is that the policy
-    # is still high-entropy (~0.95 nats of a possible 1.79): argmax discards most
-    # of what it learned, and a deterministic policy in a near-deterministic
-    # environment has no way out of a movement cycle -- the agent paces between
-    # two tiles until the step limit. Sampling breaks those loops.
+    # Non-overlapping intervals, 2.4x. The policy is still high-entropy (~0.95
+    # nats of a possible 1.79), so argmax throws away most of what it learned,
+    # and a deterministic policy in a near-deterministic environment cannot
+    # break out of a movement cycle: it paces between two tiles until the step
+    # limit. Sampling breaks those loops.
     #
-    # Flip to True and re-measure once the policy is sharp; for an unconverged
-    # one, sampling is strictly better.
+    # Flip to True and re-measure once the policy is sharp.
     deterministic_eval: bool = False
 
     # --- reward shaping ------------------------------------------------------
@@ -109,7 +108,7 @@ class PPOConfig:
     # --- runtime -------------------------------------------------------------
     model_file: str = "policy.pt"
     device: str = "cpu"
-    torch_threads: int = 1  # the brief guarantees exactly one tournament thread
+    torch_threads: int = 1  # one tournament thread
     seed: int = 0
 
     # --- telemetry -----------------------------------------------------------
@@ -122,9 +121,8 @@ class PPOConfig:
         """Resolved from ``__file__``, not the process cwd.
 
         The framework chdirs into the agent directory before each callback
-        (agents.py:304) but the training tools call in from the repository root,
-        and the brief warns that hand-written absolute paths break inside the
-        grading container.
+        (agents.py:304) but the training tools call in from the repository root.
+        Absolute paths break inside the grading container.
         """
         return AGENT_DIR / self.model_file
 
