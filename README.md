@@ -1,20 +1,11 @@
-```bash
-# Pull from main
-git fetch upstream
-git checkout main
-git merge upstream/main
-```
-
-
 # bomberman_rl — Team AttackOnTensor
 
 Setup for a project/competition amongst students to train a winning Reinforcement
 Learning agent for the classic game Bomberman.
 
 This fork adds our two learning agents and the experiment infrastructure around
-them. Full design rationale is in **[`docs/BLUEPRINT.md`](docs/BLUEPRINT.md)**;
-commands to reproduce every number are in
-**[`docs/EXPERIMENTS.md`](docs/EXPERIMENTS.md)**.
+them. Design rationale, experiments and results are written up in the project
+report; the commands below reproduce every number in it.
 
 ## The two agents
 
@@ -62,7 +53,6 @@ agent_code/       the two agents (each vendors shared/kit into kit/)
 blib/             training + evaluation infrastructure (never submitted)
 tools/            command-line entry points
 tests/            pytest suite
-docs/             blueprint and reproduction guide
 ```
 
 `shared/kit/` is vendored into each agent by `tools/sync_kit.py`. **Edit

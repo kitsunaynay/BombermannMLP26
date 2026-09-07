@@ -118,3 +118,19 @@ report_assets/
 agent_code/*/logs/
 # Training scratch checkpoints (the tournament artifact stays in the agent dir).
 checkpoints/
+# Working notes and the course PDF: kept locally, not published.
+docs/
+TASK.md
+final_project.pdf
+
+# Local assistant/editor state.
+.claude/
+CLAUDE.md
+.aider*
+.cursor/
+.mcp.json
+
+# Local envs.
+.venv/
+env/
+venv/
