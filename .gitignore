@@ -122,7 +122,10 @@ report_assets/
 # Per-agent framework logs.
 agent_code/*/logs/
 # Training scratch checkpoints (the tournament artifact stays in the agent dir).
+# Both spellings: these are symlinks into /export/scratch since 2026-09-09, and
+# a trailing slash matches only real directories, not a symlink to one.
 checkpoints/
+checkpoints
 # Working notes and the course PDF: kept locally, not published.
 docs/
 TASK.md
@@ -130,6 +133,7 @@ final_project.pdf
 
 # W&B run cache; metrics of record live in results/.
 wandb/
+wandb
 
 # Local assistant/editor state.
 .claude/
