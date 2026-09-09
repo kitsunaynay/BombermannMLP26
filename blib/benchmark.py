@@ -21,6 +21,7 @@ agents rather than luck. Aggregates carry bootstrap confidence intervals.
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 import time
@@ -35,7 +36,7 @@ import settings as s
 from .fast_env import FastWorld
 from .metrics import EpisodeStats, aggregate, mark_winners, stats_from_agent
 from .opponents import ScriptedOpponent
-from .seeding import evaluation_seeds
+from .seeding import derive_seed, evaluation_seeds, seed_everything
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
@@ -74,6 +75,13 @@ def play_rounds_fast(
     """
     # Unique display names, so the same agent can appear more than once.
     names = [f"{code}_{index}" for index, code in enumerate(agents)]
+    # Our own agents build a private `default_rng(config.seed)` in `setup`, and
+    # both default to unseeded, so their tie-breaking was a second source of
+    # run-to-run drift that seeding the global generators cannot reach. Pin it
+    # from the arena seed before `setup` runs, unless the caller has already
+    # chosen a seed (training does, and those must not be overwritten).
+    for prefix in ("AOT_QL_SEED", "AOT_PPO_SEED"):
+        os.environ.setdefault(prefix, str(derive_seed(seed, "agent")))
     policies = {name: ScriptedOpponent(code) for name, code in zip(names, agents)}
     latencies: Dict[str, List[float]] = {name: [] for name in names}
 
@@ -94,6 +102,19 @@ def play_rounds_fast(
     for round_index in range(n_rounds):
         for policy in policies.values():
             policy.reset()
+        # The arena is reproducible -- `BombeRLeWorld` draws it from its own
+        # `default_rng(seed)` (environment.py:335) -- but the *opponents* were
+        # not. `rule_based_agent.callbacks.setup` calls a bare
+        # `np.random.seed()` (line 69), reseeding the global generator from OS
+        # entropy, and the policy then shuffles its action ideas with the
+        # unseeded `random.shuffle`. Seven runs of one fixed table over these
+        # same 100 arenas scored 3.33 to 3.92 (sd 0.21) because of it, which is
+        # wider than most differences this project has tried to measure.
+        #
+        # Seeding here, after `setup` has done its damage and before the round
+        # starts, makes a benchmark reproducible. Per round rather than once,
+        # so a round's outcome does not depend on how many rounds preceded it.
+        seed_everything(derive_seed(seed, "opponents", round_index))
         for name in names:
             latencies[name] = []
 
