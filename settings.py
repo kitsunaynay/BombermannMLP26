@@ -1,4 +1,5 @@
 import logging
+import os
 from pathlib import Path
 
 from fallbacks import pygame
@@ -66,7 +67,28 @@ INPUT_MAP = {
 }
 
 # Logging levels
+#
+# Upstream logs every agent at DEBUG into `agent_code/<code>/logs/<agent>.log`.
+# That is right for one interactive game and ruinous for anything at volume:
+# the six-run stage-4 sweep of 2026-09-08 wrote 2.1 GB across four files (three
+# `rule_based_agent` logs at ~600 MB each) for runs whose results were 4 MB, on
+# a disk with 5 GB free. The path depends only on the agent's name, so parallel
+# runs also share it and overwrite each other.
+#
+# Default is therefore silence, and logs are opt-in per invocation:
+#
+#     AOT_LOG_LEVEL=DEBUG python main.py play --agents attackontensor_ql
+#
+# Accepts any level name (DEBUG, INFO, WARNING, ERROR, CRITICAL). LOG_GAME is
+# left at the framework's INFO because `logs/game.log` is one small file per
+# run, not one per agent per process.
+def _log_level(name: str, default: int) -> int:
+    return getattr(logging, os.environ.get(name, "").strip().upper(), default)
+
+
+_AGENT_LOG_DEFAULT = _log_level("AOT_LOG_LEVEL", logging.CRITICAL)
+
 LOG_GAME = logging.INFO
-LOG_AGENT_WRAPPER = logging.INFO
-LOG_AGENT_CODE = logging.DEBUG
+LOG_AGENT_WRAPPER = _AGENT_LOG_DEFAULT
+LOG_AGENT_CODE = _AGENT_LOG_DEFAULT
 LOG_MAX_FILE_SIZE = 100 * 1024 * 1024  # 100 MB

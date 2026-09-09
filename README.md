@@ -73,13 +73,27 @@ identically step for step.
 
 ## Changes to framework files
 
-Two upstream bugs are fixed for development convenience. Both files are replaced
-by the graders' originals at tournament time, so nothing depends on them:
+Four upstream bugs are fixed for development convenience. All of these files are
+replaced by the graders' originals at tournament time, so nothing depends on them:
 
 - `fallbacks.py` — `LOADED_PYGAME` was `True` even when the import failed, which
   made `main.py`'s guard unreachable.
 - `main.py` — added `--fps`; `GUI.make_video` read `args.fps`, which no argument
   ever defined, so `--make-video` always raised `AttributeError`.
+- `settings.py` — agent logging defaulted to `DEBUG`, which cost 2.1 GB over one
+  overnight sweep. It is now silent by default and opt-in per invocation:
+
+  ```bash
+  AOT_LOG_LEVEL=DEBUG python main.py play --agents attackontensor_ql
+  ```
+
+- `agents.py` — `settings.LOG_MAX_FILE_SIZE` was declared and never used, so a
+  `DEBUG` log grew without bound. The handler now rotates at that limit.
+
+Both training and `--backend main` benchmarking shell out to `main.py`, so the
+logging path is on the hot path for every long job here. Note that the log file
+name depends only on the agent's name: parallel runs share it, so `AOT_LOG_LEVEL`
+during a sweep produces interleaved, not per-run, logs.
 
 `agent_code/scripted_test_agent/` is a deterministic test fixture used by the
 parity test, not a competitor.

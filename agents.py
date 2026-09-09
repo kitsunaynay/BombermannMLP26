@@ -1,5 +1,6 @@
 import importlib
 import logging
+import logging.handlers
 import multiprocessing as mp
 import os
 import queue
@@ -225,7 +226,15 @@ class AgentRunner:
         self.fake_self.logger.setLevel(s.LOG_AGENT_CODE)
         log_dir = f'agent_code/{self.code_name}/logs/'
         if not os.path.exists(log_dir): os.makedirs(log_dir)
-        handler = logging.FileHandler(f'{log_dir}{self.agent_name}.log', mode="w")
+        # `s.LOG_MAX_FILE_SIZE` was declared upstream and never wired to
+        # anything, so a DEBUG game wrote an unbounded file -- 600 MB per
+        # opponent over one overnight sweep. Rotating caps it at twice the
+        # limit. Truncating first keeps upstream's one-file-per-run behaviour,
+        # which `RotatingFileHandler` would otherwise turn into an append.
+        log_file = f'{log_dir}{self.agent_name}.log'
+        open(log_file, 'w').close()
+        handler = logging.handlers.RotatingFileHandler(
+            log_file, maxBytes=s.LOG_MAX_FILE_SIZE, backupCount=1)
         handler.setLevel(logging.DEBUG)
         formatter = logging.Formatter('%(asctime)s [%(name)s] %(levelname)s: %(message)s')
         handler.setFormatter(formatter)
