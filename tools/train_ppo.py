@@ -93,8 +93,24 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+#: Overrides that the *workers* need, not just the learner. `make_ppo_transform`
+#: and `make_ppo_reward_fn` run inside each worker process and rebuild their own
+#: `PPOConfig.load()`, so anything they consume has to travel as an environment
+#: variable or it never leaves the parent. `learning_rate` and
+#: `entropy_coefficient` are deliberately absent: they are used only by the
+#: learner, in this process.
+WORKER_VISIBLE = ("observation", "safety_mode")
+
+
 def apply_overrides(args) -> PPOConfig:
-    """CLI overrides win over config.json and the environment."""
+    """CLI overrides win over config.json and the environment.
+
+    Exports the worker-visible ones back into ``os.environ`` before returning.
+    Without that, ``--safety-mode hard`` changed this process's config object
+    and nothing else: every worker built its action mask from the default
+    ``soft``, so the flag silently did nothing to training. Two arms launched
+    on 2026-09-09 produced bit-identical curves, which is how it was found.
+    """
     config = PPOConfig.load()
     if args.observation:
         config.observation = args.observation
@@ -106,6 +122,11 @@ def apply_overrides(args) -> PPOConfig:
         config.entropy_coefficient = args.entropy_coefficient
     config.device = args.device
     config.seed = args.seed
+
+    # Set before the vec env is built, so forked and spawned workers both see it.
+    for field in WORKER_VISIBLE:
+        os.environ[f"AOT_PPO_{field.upper()}"] = str(getattr(config, field))
+
     return config
 
 
