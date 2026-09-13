@@ -1,19 +1,4 @@
-"""The double-delivery contract, tested against the framework's exact pattern.
-
-``do_step`` (environment.py:158) calls ``send_game_events`` and then, if the
-round is over, ``end_round``:
-
-* a **surviving** agent receives its final transition through
-  ``game_events_occurred`` *and again* through ``end_of_round``, with the same
-  ``last_game_state`` and ``last_action``, and ``SURVIVED_ROUND`` appended to the
-  same list object in between;
-* an agent that **died** receives it only through ``end_of_round``, because
-  ``send_game_events`` skips the dead (environment.py:469).
-
-Naively appending experience in both callbacks double-counts every surviving
-episode's last transition. Nothing about a training curve makes that visible,
-which is exactly why it is pinned here.
-"""
+"""The double-delivery contract, tested against the framework's exact pattern."""
 
 import logging
 from types import SimpleNamespace
@@ -272,11 +257,13 @@ def test_ppo_act_caches_rollout_data_for_training(ppo_agent):
     agent, _ = ppo_agent
     state = make_state(1)
 
+    from agent_code.attackontensor_ppo import tensorizer as T
+
     action = callbacks.act(agent, state)
 
     assert action in ("UP", "RIGHT", "DOWN", "LEFT", "WAIT", "BOMB")
     cached = agent._step_cache[(state["round"], state["step"])]
-    assert cached["observation"].shape[0] == 13
+    assert cached["observation"].shape[0] == T.n_channels(agent.config)
     assert "log_prob" in cached and "value" in cached and "mask" in cached
 
 

@@ -14,7 +14,9 @@ state_to_features = T.state_to_tensor
 
 
 # not config but checkpoint; checkpoint wins if they disagree
-ADOPTED_FROM_CHECKPOINT = ("observation", "ego_radius", "safety_mode")
+ADOPTED_FROM_CHECKPOINT = (
+    "observation", "ego_radius", "safety_mode", "survival_channels", "bomb_gate",
+)
 
 
 def setup(self):
@@ -31,11 +33,12 @@ def setup(self):
     if payload is not None:
         _adopt_checkpoint_config(self, payload)
 
+    # single thread during tournament to avoid oversubscription
     torch.set_num_threads(max(1, int(self.config.torch_threads)))
     torch.manual_seed(self.config.seed)
 
     self.device = torch.device(self.config.device)
-    self.network = build_network(self.config, T.N_CHANNELS).to(self.device)
+    self.network = build_network(self.config, T.n_channels(self.config)).to(self.device)
 
     if payload is not None:
         try:
@@ -43,8 +46,6 @@ def setup(self):
         except Exception as error:  # noqa: BLE001
             self.logger.warning(f"Could not load {path} ({error}); using fresh weights.")
     elif not self.train:
-        # Never crash on a missing checkpoint: an untrained agent that plays
-        # badly still passes the graders' submission test, a crashing one does not.
         self.logger.warning(f"No checkpoint at {path}; playing from random weights.")
 
     self.network.eval()
@@ -62,7 +63,12 @@ def setup(self):
 
 def _adopt_checkpoint_config(self, payload) -> None:
     # checkpoint values override config on input shape and safety settings
-    stored = payload.get("config") or {}
+    stored = dict(payload.get("config") or {})
+
+    in_channels = (payload.get("network") or {}).get("in_channels")
+    if "survival_channels" not in stored and in_channels is not None:
+        stored["survival_channels"] = int(in_channels) == T.N_CHANNELS
+
     for field in ADOPTED_FROM_CHECKPOINT:
         if field not in stored:
             continue
@@ -76,14 +82,16 @@ def _adopt_checkpoint_config(self, payload) -> None:
 
 
 def _load_checkpoint(self, payload, path) -> None:
+    # validate checkpoint shape matches config
     saved = payload.get("network", {})
 
-    expected = (T.N_CHANNELS, self.config.spatial_size)
+    expected = (T.n_channels(self.config), self.config.spatial_size)
     found = (saved.get("in_channels"), saved.get("spatial_size"))
     if None not in found and found != expected:
         raise ValueError(
             f"checkpoint was trained for input {found}, but the current config "
-            f"expects {expected}; check `observation` and `ego_radius`"
+            f"expects {expected}; check `observation`, `ego_radius` and "
+            "`survival_channels`"
         )
 
     self.network.load_state_dict(payload["state_dict"])
@@ -91,7 +99,7 @@ def _load_checkpoint(self, payload, path) -> None:
 
 
 def _warm_up(self) -> None:
-    """Pay torch's first-call initialisation cost outside the timed path."""
+    # initialize jit and lazy modules
     shape = T.observation_shape(self.config)
     dummy = torch.zeros(1, *shape, device=self.device)
     with torch.inference_mode():
@@ -103,7 +111,7 @@ def _observation_tensor(self, observation: np.ndarray) -> torch.Tensor:
 
 
 def choose_action(self, game_state: dict) -> Tuple[str, int, dict]:
-    """Pick an action and return the rollout data ``train.py`` will need."""
+    # network forward pass with action mask constraint
     observation = T.state_to_tensor(game_state, self.config)
     mask = T.action_mask_for(game_state, self.config)
 
@@ -127,7 +135,7 @@ def choose_action(self, game_state: dict) -> Tuple[str, int, dict]:
 
 
 def act(self, game_state: dict) -> str:
-    """Choose an action. Hard 0.5 s budget when not training (settings.py:53)."""
+    # select action with bounded cost and crash recovery
     if game_state is None:
         return ACTIONS[WAIT]
 
@@ -139,25 +147,23 @@ def act(self, game_state: dict) -> str:
         name, _, step_data = choose_action(self, game_state)
 
         if self.train:
-            # train.py consumes this on the matching game_events_occurred call,
-            # so the forward pass is not repeated for the update.
+            # cache step data for later learning
             key = (game_state["round"], game_state["step"])
             if len(self._step_cache) > 4:
                 self._step_cache.clear()
             self._step_cache[key] = step_data
 
         return name
-    except Exception as error:  # noqa: BLE001
+    except Exception as error:
         self.logger.exception(f"act() failed ({error}); falling back.")
         return _fallback_action(self, game_state)
 
 
 def _fallback_action(self, game_state: dict) -> str:
-    """Least-bad action when the policy path fails: any non-fatal legal move."""
     try:
         mask = T.action_mask_for(game_state, self.config)
         if mask.any():
             return ACTIONS[int(np.flatnonzero(mask)[0])]
-    except Exception:  # noqa: BLE001
+    except Exception:
         pass
     return ACTIONS[WAIT]

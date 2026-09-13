@@ -1,28 +1,4 @@
-"""In-process game environment for fast, parallel training.
-
-The framework's own loop is unusably slow for deep RL: every step round-trips
-through ``AgentBackend``, a per-agent logger and a queue, and ``main.py`` runs
-one world at a time. Measured on this repository it manages roughly three rounds
-a second with four agents -- perhaps 10^3 transitions/second, where PPO wants
-10^5 or more.
-
-Rather than reimplement the rules (and risk training against a game that is not
-the one being graded), this subclasses :class:`BombeRLeWorld` and overrides only
-``poll_and_run_agents`` to take actions from a callback instead of from agent
-backends. **Every rule stays upstream code**: ``do_step``, ``perform_agent_action``,
-``update_bombs``, ``evaluate_explosions`` and ``get_state_for_agent`` are
-inherited untouched. This is exactly the extension point ``replay.py:59`` already
-uses to replay recorded games, so it is a supported shape, not a hack.
-
-The brief permits this explicitly -- *"multiprocessing or anything else that
-comes to your mind to improve training is perfectly fine"* -- as long as the
-submitted agent itself is single-process, which it is.
-
-``tests/test_fast_env_parity.py`` drives this world and a stock
-``BombeRLeWorld`` through the same action sequence with the same seed and asserts
-the two evolve identically. That check is what lets results measured here be
-reported as results about the real game.
-"""
+"""In-process game environment for fast, parallel training."""
 
 from __future__ import annotations
 
@@ -207,7 +183,7 @@ class BomberEnv:
         self.opponents: Dict[str, ScriptedOpponent] = {}
         for index, code_name in enumerate(opponents):
             # Names must be unique even when the same opponent appears twice.
-            name = f"{code_name}_{index}"
+            name = f"{ScriptedOpponent.parse_name(code_name)}_{index}"
             self.opponent_names.append(name)
             self.opponents[name] = ScriptedOpponent(code_name)
 

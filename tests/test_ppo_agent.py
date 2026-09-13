@@ -48,9 +48,20 @@ def test_tensor_has_the_documented_shape_and_dtype():
     config = PPOConfig(observation="global")
     tensor = T.state_to_tensor(make_game_state(), config)
 
-    assert tensor.shape == (T.N_CHANNELS, s.COLS, s.ROWS)
+    assert tensor.shape == (T.BASE_CHANNELS, s.COLS, s.ROWS)
     assert tensor.dtype == np.float32
-    assert len(T.CHANNEL_NAMES) == T.N_CHANNELS
+    assert len(T.CHANNEL_NAMES) == T.N_CHANNELS == T.BASE_CHANNELS + T.SURVIVAL_CHANNELS
+
+
+def test_survival_channels_are_opt_in():
+    state = make_game_state(bombs=[((1, 1), 3)])
+    base = T.state_to_tensor(state, PPOConfig(survival_channels=False))
+    full = T.state_to_tensor(state, PPOConfig(survival_channels=True))
+
+    assert base.shape[0] == T.BASE_CHANNELS and full.shape[0] == T.N_CHANNELS
+    # The base planes are identical either way; only the extra ones differ.
+    assert np.array_equal(base, full[: T.BASE_CHANNELS])
+    assert full[T.CH_SURVIVAL_DURATION:].any()
 
 
 def test_tensor_is_none_for_a_missing_state():
@@ -95,7 +106,7 @@ def test_egocentric_crop_is_centred_and_wall_padded():
     tensor = T.state_to_tensor(make_game_state(position=(1, 1)), config)
 
     size = 2 * config.ego_radius + 1
-    assert tensor.shape == (T.N_CHANNELS, size, size)
+    assert tensor.shape == (T.n_channels(config), size, size)
     # The agent sits at the centre of its own view, by construction.
     assert tensor[T.CH_SELF, config.ego_radius, config.ego_radius] == 1.0
     assert tensor[T.CH_SELF].sum() == 1.0
@@ -104,7 +115,11 @@ def test_egocentric_crop_is_centred_and_wall_padded():
 
 
 def test_observation_shape_matches_the_tensorizer():
-    for config in (PPOConfig(observation="global"), PPOConfig(observation="ego", ego_radius=3)):
+    for config in (
+        PPOConfig(observation="global"),
+        PPOConfig(observation="ego", ego_radius=3),
+        PPOConfig(observation="global", survival_channels=True),
+    ):
         assert T.state_to_tensor(make_game_state(), config).shape == T.observation_shape(config)
 
 
@@ -227,8 +242,8 @@ def test_network_output_shapes():
 
 def test_network_adapts_to_the_egocentric_size():
     config = PPOConfig(observation="ego", ego_radius=3)
-    network = build_network(config, T.N_CHANNELS)
-    logits, _ = network(torch.zeros(2, T.N_CHANNELS, 7, 7))
+    network = build_network(config, T.n_channels(config))
+    logits, _ = network(torch.zeros(2, T.n_channels(config), 7, 7))
     assert logits.shape == (2, N_ACTIONS)
 
 
@@ -277,7 +292,7 @@ def test_policy_starts_near_uniform():
 
 def test_update_runs_and_reports_finite_metrics():
     config = PPOConfig(rollout_steps=64, minibatch_size=16, update_epochs=2, observation="ego", ego_radius=2)
-    network = build_network(config, T.N_CHANNELS)
+    network = build_network(config, T.n_channels(config))
     learner = PPOLearner(network, config)
 
     shape = T.observation_shape(config)
@@ -304,7 +319,7 @@ def test_update_runs_and_reports_finite_metrics():
 
 def test_update_on_an_empty_buffer_is_a_no_op():
     config = PPOConfig(observation="ego", ego_radius=2)
-    learner = PPOLearner(build_network(config, T.N_CHANNELS), config)
+    learner = PPOLearner(build_network(config, T.n_channels(config)), config)
     buffer = RolloutBuffer(capacity=4, observation_shape=T.observation_shape(config))
 
     metrics = learner.update(buffer, np.array([]), np.array([]))
@@ -313,21 +328,22 @@ def test_update_on_an_empty_buffer_is_a_no_op():
 
 
 def test_checkpoint_round_trips(tmp_path):
-    config = PPOConfig(observation="ego", ego_radius=2)
-    learner = PPOLearner(build_network(config, T.N_CHANNELS), config)
+    config = PPOConfig(observation="ego", ego_radius=2, survival_channels=True)
+    learner = PPOLearner(build_network(config, T.n_channels(config)), config)
     path = tmp_path / "policy.pt"
 
     learner.save(path)
     payload = torch.load(path, map_location="cpu", weights_only=False)
 
     assert payload["network"]["in_channels"] == T.N_CHANNELS
+    assert payload["config"]["survival_channels"] is True
     assert payload["network"]["spatial_size"] == config.spatial_size
     assert "state_dict" in payload and "config" in payload
 
 
 def test_schedules_anneal_between_the_configured_endpoints():
     config = PPOConfig(learning_rate=1e-3, learning_rate_final=1e-5, anneal_schedules=True)
-    learner = PPOLearner(build_network(config, T.N_CHANNELS), config)
+    learner = PPOLearner(build_network(config, T.n_channels(config)), config)
 
     learner.progress = 0.0
     assert learner.learning_rate == pytest.approx(1e-3)

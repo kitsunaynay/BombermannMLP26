@@ -36,6 +36,7 @@ import os
 import shutil
 import sys
 import time
+from dataclasses import replace
 from pathlib import Path
 
 import numpy as np
@@ -64,6 +65,13 @@ def build_parser() -> argparse.ArgumentParser:
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
     parser.add_argument("--stage", type=int, choices=[s.index for s in STAGES], default=1)
+    parser.add_argument("--opponents", nargs="*", default=None,
+                        help="override the stage's opponents (blib.opponents.OpponentSpec "
+                             "strings, e.g. rule_based_agent:nobomb or "
+                             "attackontensor_ppo@/path/to/frozen.pt)")
+    parser.add_argument("--select-by", choices=("score", "gate"), default="score",
+                        help="rank snapshots by raw score, or by passing the stage gate "
+                             "first and score second")
     parser.add_argument("--workers", type=int, default=8)
     parser.add_argument("--total-steps", type=int, default=500_000)
     parser.add_argument("--steps-per-worker", type=int, default=128,
@@ -73,6 +81,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--resume", action="store_true", help="continue from policy.pt")
     parser.add_argument("--observation", choices=("global", "ego"), default=None)
     parser.add_argument("--safety-mode", choices=("none", "soft", "hard"), default=None)
+    parser.add_argument("--bomb-gate", choices=("escape", "robust"), default=None,
+                        help="how the hard mask judges BOMB (kit.safety.BOMB_GATES)")
+    parser.add_argument("--survival-channels", dest="survival_channels", action="store_true",
+                        default=None, help="add the four survival-profile input planes")
+    parser.add_argument("--no-survival-channels", dest="survival_channels",
+                        action="store_false", help="base 13 planes only")
     parser.add_argument("--learning-rate", type=float, default=None)
     parser.add_argument("--entropy-coefficient", type=float, default=None)
     parser.add_argument("--checkpoint-every", type=int, default=20, help="iterations")
@@ -99,7 +113,7 @@ def build_parser() -> argparse.ArgumentParser:
 #: variable or it never leaves the parent. `learning_rate` and
 #: `entropy_coefficient` are deliberately absent: they are used only by the
 #: learner, in this process.
-WORKER_VISIBLE = ("observation", "safety_mode")
+WORKER_VISIBLE = ("observation", "safety_mode", "survival_channels", "bomb_gate")
 
 
 def apply_overrides(args) -> PPOConfig:
@@ -116,6 +130,10 @@ def apply_overrides(args) -> PPOConfig:
         config.observation = args.observation
     if args.safety_mode:
         config.safety_mode = args.safety_mode
+    if args.survival_channels is not None:
+        config.survival_channels = args.survival_channels
+    if args.bomb_gate:
+        config.bomb_gate = args.bomb_gate
     if args.learning_rate is not None:
         config.learning_rate = args.learning_rate
     if args.entropy_coefficient is not None:
@@ -133,6 +151,8 @@ def apply_overrides(args) -> PPOConfig:
 def main(argv=None) -> int:
     args = build_parser().parse_args(argv)
     stage = get_stage(args.stage)
+    if args.opponents is not None:
+        stage = replace(stage, opponents=tuple(args.opponents))
     config = apply_overrides(args)
 
     run_id = args.run_id or make_run_id(f"ppo-task{stage.index}")
@@ -148,7 +168,8 @@ def main(argv=None) -> int:
     checkpoint_dir.mkdir(parents=True, exist_ok=True)
 
     print(describe_stage(stage))
-    print(f"\nrun_id={run_id}  workers={args.workers}  device={args.device}")
+    print(f"\nrun_id={run_id}  workers={args.workers}  device={args.device}  "
+          f"select_by={args.select_by}")
     print(f"checkpoints={display_path(checkpoint_dir)}")
     print(f"observation={config.observation} shape={T.observation_shape(config)} "
           f"safety={config.safety_mode}\n")
@@ -166,9 +187,16 @@ def main(argv=None) -> int:
     envs = vec_class(specs)
 
     # -- learner -----------------------------------------------------------
-    network = build_network(config, T.N_CHANNELS)
+    network = build_network(config, T.n_channels(config))
     if args.resume and config.model_path.is_file():
         payload = torch.load(config.model_path, map_location="cpu", weights_only=False)
+        found = (payload.get("network") or {}).get("in_channels")
+        if found is not None and int(found) != T.n_channels(config):
+            raise SystemExit(
+                f"{config.model_path} has {found} input planes but this run is "
+                f"configured for {T.n_channels(config)}; pass "
+                f"--{'' if found == T.N_CHANNELS else 'no-'}survival-channels"
+            )
         network.load_state_dict(payload["state_dict"])
         print(f"Resumed from {config.model_path}")
 
@@ -383,21 +411,35 @@ def select_best_checkpoint(args, stage, checkpoint_dir: Path, run_dir: Path) -> 
             )
         )
         values = summary["per_agent"][f"{agent}_0"]
-        key = (values.get("score_mean", 0.0), values.get("survival_rate", 0.0), index)
+        passed, _ = stage.gate.evaluate(values)
+        # gate mode: a snapshot that clears the stage's gate always outranks one
+        # that doesn't, regardless of score (avoids picking a high-scoring but
+        # high-suicide snapshot).
+        key = (
+            (1 if passed else 0) if args.select_by == "gate" else 0,
+            values.get("score_mean", 0.0),
+            values.get("survival_rate", 0.0),
+            index,
+        )
         results.append((key, path, values))
         print(f"  {path.name:<26} score={values.get('score_mean', 0):6.2f} "
               f"surv={values.get('survival_rate', 0):5.1%} "
-              f"suic={values.get('suicide_rate', 0):5.2f}")
+              f"suic={values.get('suicide_rate', 0):5.2f} "
+              f"gate={'PASS' if passed else 'fail'}")
 
     os.environ.pop("AOT_PPO_MODEL_FILE", None)
     results.sort(key=lambda item: item[0], reverse=True)
     best_key, best_path, _ = results[0]
-    print(f"  -> best {best_path.name} (score {best_key[0]:.2f})")
+    print(f"  -> best {best_path.name} (score {best_key[1]:.2f}, "
+          f"gate {'PASS' if best_key[0] else 'fail'}, select_by={args.select_by})")
 
     run_dir.mkdir(parents=True, exist_ok=True)
     (run_dir / "checkpoint_selection.json").write_text(
         json.dumps(
-            [{"checkpoint": p.name, "score": k[0], "survival": k[1]} for k, p, _ in results],
+            [{"checkpoint": p.name, "score": k[1], "survival": k[2],
+              "gate_pass": bool(stage.gate.evaluate(v)[0]),
+              "suicide": v.get("suicide_rate"), "win": v.get("win_rate"),
+              "kills": v.get("kills_mean")} for k, p, v in results],
             indent=2,
         )
     )

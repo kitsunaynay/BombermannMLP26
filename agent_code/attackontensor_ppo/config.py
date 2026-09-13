@@ -50,6 +50,11 @@ class PPOConfig:
     # --- observation ---------------------------------------------------------
     observation: str = "global"  # global | ego
     ego_radius: int = 4  # ego window is (2r+1) squared
+    # Extra planes from kit.pathfind.survival_profile (escape duration/breadth/
+    # blast margin/contested), see tensorizer.py. Off by default: the shipped
+    # policy was trained on 13 planes. Stored in the checkpoint and adopted at
+    # load time (see callbacks.py), so a 17-plane checkpoint just works.
+    survival_channels: bool = False
 
     # --- network -------------------------------------------------------------
     channels: Tuple[int, ...] = (32, 64, 64)
@@ -77,6 +82,8 @@ class PPOConfig:
 
     # --- exploration and safety ---------------------------------------------
     safety_mode: str = "soft"  # none | soft | hard
+    # bomb gate harshness: escape=any exit, robust=redundant exit
+    bomb_gate: str = "escape"  # escape | robust
 
     # Sample from the policy at evaluation instead of taking the argmax.
     #

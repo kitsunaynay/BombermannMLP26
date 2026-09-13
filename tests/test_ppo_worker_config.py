@@ -19,8 +19,8 @@ from tools.train_ppo import WORKER_VISIBLE, apply_overrides
 
 
 def _args(**overrides):
-    base = dict(observation=None, safety_mode=None, learning_rate=None,
-                entropy_coefficient=None, device="cpu", seed=0)
+    base = dict(observation=None, safety_mode=None, survival_channels=None, bomb_gate=None,
+                learning_rate=None, entropy_coefficient=None, device="cpu", seed=0)
     base.update(overrides)
     return argparse.Namespace(**base)
 
@@ -68,3 +68,20 @@ def test_defaults_are_exported_too_so_a_stale_var_cannot_leak_in(monkeypatch):
     monkeypatch.setenv("AOT_PPO_SAFETY_MODE", "hard")
     config = apply_overrides(_args())          # no --safety-mode given
     assert os.environ["AOT_PPO_SAFETY_MODE"] == config.safety_mode
+
+
+def test_survival_channels_reach_the_workers():
+    """The tensorizer runs inside each worker, so the plane count must travel."""
+    apply_overrides(_args(survival_channels=True))
+    assert os.environ["AOT_PPO_SURVIVAL_CHANNELS"] == "True"
+    assert PPOConfig.load().survival_channels is True
+    apply_overrides(_args(survival_channels=False))
+    assert PPOConfig.load().survival_channels is False
+
+
+def test_bomb_gate_reaches_the_workers():
+    apply_overrides(_args(bomb_gate="robust"))
+    assert os.environ["AOT_PPO_BOMB_GATE"] == "robust"
+    assert PPOConfig.load().bomb_gate == "robust"
+    apply_overrides(_args(bomb_gate="escape"))
+    assert PPOConfig.load().bomb_gate == "escape"

@@ -35,7 +35,7 @@ import settings as s
 
 from .fast_env import FastWorld
 from .metrics import EpisodeStats, aggregate, mark_winners, stats_from_agent
-from .opponents import ScriptedOpponent
+from .opponents import ScriptedOpponent, display_name
 from .seeding import derive_seed, evaluation_seeds, seed_everything
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -74,7 +74,7 @@ def play_rounds_fast(
     ``AgentRunner`` uses. One code path for everyone keeps the comparison fair.
     """
     # Unique display names, so the same agent can appear more than once.
-    names = [f"{code}_{index}" for index, code in enumerate(agents)]
+    names = [f"{display_name(code)}_{index}" for index, code in enumerate(agents)]
     # Our own agents build a private `default_rng(config.seed)` in `setup`, and
     # both default to unseeded, so their tie-breaking was a second source of
     # run-to-run drift that seeding the global generators cannot reach. Pin it
