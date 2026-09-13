@@ -1,21 +1,3 @@
-"""Inference callbacks for the AttackOnTensor PPO agent.
-
-Everything here is shaped by the tournament's 0.5 s per-step budget on a single
-CPU thread:
-
-* ``torch.set_num_threads(config.torch_threads)``: only one thread is
-  available, and letting torch spin up more oversubscribes it and makes each
-  call slower.
-* A warm-up forward pass in ``setup``. Torch defers allocator and kernel setup
-  to the first real call; ``setup`` is untimed and ``act`` is not, so that cost
-  is paid up front.
-* ``torch.inference_mode()`` around the forward pass, so no autograd graph is
-  built while playing.
-
-Weights load with ``map_location='cpu'`` so a GPU-trained checkpoint runs on the
-graders' CPU-only machine.
-"""
-
 from __future__ import annotations
 
 from typing import Optional, Tuple
@@ -28,13 +10,26 @@ from .config import PPOConfig
 from .kit.actions import ACTIONS, WAIT
 from .network import build_network
 
-#: Re-exported so train.py can follow the template's import convention.
 state_to_features = T.state_to_tensor
 
 
+# not config but checkpoint; checkpoint wins if they disagree
+ADOPTED_FROM_CHECKPOINT = ("observation", "ego_radius", "safety_mode")
+
+
 def setup(self):
-    """Called once before the first round; untimed."""
     self.config = PPOConfig.load()
+
+    # load checkpoint before building network since payload changes input shape
+    path = self.config.model_path
+    payload = None
+    if path.is_file():
+        try:
+            payload = torch.load(path, map_location="cpu", weights_only=False)
+        except Exception as error:  # noqa: BLE001
+            self.logger.warning(f"Could not read {path} ({error}); using fresh weights.")
+    if payload is not None:
+        _adopt_checkpoint_config(self, payload)
 
     torch.set_num_threads(max(1, int(self.config.torch_threads)))
     torch.manual_seed(self.config.seed)
@@ -42,10 +37,9 @@ def setup(self):
     self.device = torch.device(self.config.device)
     self.network = build_network(self.config, T.N_CHANNELS).to(self.device)
 
-    path = self.config.model_path
-    if path.is_file():
+    if payload is not None:
         try:
-            _load_checkpoint(self, path)
+            _load_checkpoint(self, payload, path)
         except Exception as error:  # noqa: BLE001
             self.logger.warning(f"Could not load {path} ({error}); using fresh weights.")
     elif not self.train:
@@ -66,8 +60,22 @@ def setup(self):
     )
 
 
-def _load_checkpoint(self, path) -> None:
-    payload = torch.load(path, map_location="cpu", weights_only=False)
+def _adopt_checkpoint_config(self, payload) -> None:
+    # checkpoint values override config on input shape and safety settings
+    stored = payload.get("config") or {}
+    for field in ADOPTED_FROM_CHECKPOINT:
+        if field not in stored:
+            continue
+        value = stored[field]
+        if value != getattr(self.config, field, None):
+            self.logger.warning(
+                f"Checkpoint was trained with {field}={value!r}, config says "
+                f"{getattr(self.config, field, None)!r}; using the checkpoint's value."
+            )
+            setattr(self.config, field, value)
+
+
+def _load_checkpoint(self, payload, path) -> None:
     saved = payload.get("network", {})
 
     expected = (T.N_CHANNELS, self.config.spatial_size)
