@@ -1,0 +1,49 @@
+{
+  "agent": "survival_linear_ppo_v4",
+  "non_neural": true,
+  "final_variant": "ppo_300_full",
+  "training_rounds": 300,
+  "checkpoint_sha256": "74abb1b2fd5b80ed1ae408e35570ae96f68e077e7c84e88f0f9cf75aeb83e375",
+  "checkpoint_provenance": {
+    "training_rounds": 300,
+    "origin": "ppo_combat",
+    "n_updates": 382,
+    "budget_source": "phase journal",
+    "checkpoint": "/content/bomberman_rl/results/controlled_ppo/20260916_162347_317483/checkpoints/ppo_300_full.pkl",
+    "sha256": "74abb1b2fd5b80ed1ae408e35570ae96f68e077e7c84e88f0f9cf75aeb83e375"
+  },
+  "integration_only": false,
+  "status": "passed_all_gates",
+  "passes_all_gates": true,
+  "evaluation": {
+    "agent": "survival_linear_ppo_v4",
+    "variant": "ppo_300_full",
+    "label": "test",
+    "seeds": 20,
+    "rounds": 100,
+    "score_per_round": 5.040000000000001,
+    "score_ci_low": 4.519638160372277,
+    "score_ci_high": 5.560361839627725,
+    "suicide_wilson_upper": 0.321545648568277,
+    "invalid_rate": 0.001515688993518011,
+    "mean_act_ms": 56.19391653368522,
+    "score_advantage": 2.1033333333333335,
+    "kills_per_round": 0.44000000000000006,
+    "survival_rate": 0.74,
+    "death_rate": 0.26000000000000006,
+    "suicide_rate": 0.23000000000000004,
+    "selection_objective": 3.2334555660991686,
+    "score_gate": true,
+    "suicide_gate": true,
+    "invalid_gate": true,
+    "latency_gate": true,
+    "passes_all": true
+  },
+  "files": {
+    "__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "callbacks.py": "7ce633815cfaf320c06d2bb836ccfc7bd37907eb37da9af3c355d42804e8c98a",
+    "core.py": "57a1f30ca26e686d0e062396d5b6e34f24ab84396fe773c5d3364c9665a4872a",
+    "model.pkl": "74abb1b2fd5b80ed1ae408e35570ae96f68e077e7c84e88f0f9cf75aeb83e375",
+    "model.py": "e24c85c88d942f6aad681aa3eb4ec44b1e1f7039c735e79ce0993c5d16ac4f2b"
+  }
+}
