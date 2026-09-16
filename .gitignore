@@ -146,3 +146,8 @@ CLAUDE.md
 .venv/
 env/
 venv/
+
+# Pristine upstream checkout used by tools/tournament_sim.py (cloned on demand).
+.tournament/
+# Per-seed scratch of the main-backend benchmark; the aggregate JSON is what is kept.
+results/_benchmark_tmp/
