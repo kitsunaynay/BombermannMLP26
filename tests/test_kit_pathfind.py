@@ -1,9 +1,4 @@
-"""Navigation and survival tests.
-
-The survival cases are hand-built corridors where the correct answer is
-provable by counting moves, so they pin down the *timing* arithmetic -- the
-part of the agent that decides whether it lives or dies.
-"""
+"""Navigation and survival tests."""
 
 from collections import deque
 
@@ -288,3 +283,188 @@ def test_hard_mask_falls_back_to_the_optimistic_search_when_threats_seal_everyth
 
     assert np.array_equal(masked, optimistic)
     assert masked.any()
+
+
+# ---------------------------------------------------------------------------
+# Continuous survival features (route A: v4 escape-shield merge)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "length, bombs, action, start, expected_safe",
+    [
+        (5, [], RIGHT, (1, 1), True),  # exactly enough room, see BOMB_TIMER test above
+        (5, [((1, 1), 1)], RIGHT, (3, 1), True),
+        (5, [((1, 1), 1)], LEFT, (3, 1), False),
+        (5, [((1, 1), 1)], WAIT, (3, 1), False),
+    ],
+)
+def test_survival_profile_safety_verdict_matches_survives_after(
+    length, bombs, action, start, expected_safe
+):
+    field = corridor(length + 2)
+    passable = G.free_mask(field, bombs=bombs)
+    danger = G.danger_map(field, bombs)
+
+    profile = P.survival_profile(field, start, action, danger, passable)
+
+    assert profile.safe == expected_safe
+    assert profile.safe == P.survives_after(field, start, action, danger, passable)
+
+
+def test_survival_profile_is_maximally_confident_with_no_danger():
+    field = corridor(7)
+    passable = G.free_mask(field)
+    danger = G.danger_map(field, [])
+
+    profile = P.survival_profile(field, (1, 1), RIGHT, danger, passable)
+
+    assert profile.safe
+    assert profile.duration == P.SURVIVAL_HORIZON
+    assert profile.breadth == pytest.approx(1.0)
+    assert profile.min_margin == pytest.approx(float(P.SURVIVAL_HORIZON))
+    assert profile.contested == pytest.approx(0.0)
+
+
+def test_survival_profile_margin_shrinks_near_a_ticking_bomb():
+    """Standing right next to a soon-to-detonate bomb should certify a
+    tighter margin than fleeing straight past its blast radius."""
+    field = corridor(9)
+    bombs = [((1, 1), 3)]
+    passable = G.free_mask(field, bombs=bombs)
+    danger = G.danger_map(field, bombs)
+
+    near = P.survival_profile(field, (2, 1), RIGHT, danger, passable)
+    far = P.survival_profile(field, (7, 1), RIGHT, danger, passable)
+
+    assert near.safe and far.safe
+    assert near.min_margin < far.min_margin
+
+
+def test_survival_profile_rejects_an_illegal_move():
+    field = corridor(5)
+    passable = G.free_mask(field)
+    danger = G.danger_map(field, [])
+
+    profile = P.survival_profile(field, (1, 1), UP, danger, passable)  # wall above
+
+    assert not profile.safe
+    assert profile.duration == 0
+
+
+def tiles_of(mask: np.ndarray) -> set:
+    """Boolean mask -> set of ``(x, y)`` tuples, for set-style assertions."""
+    return {tuple(xy) for xy in np.argwhere(mask)}
+
+
+def test_opponent_reachability_starts_at_current_positions():
+    field = np.full((6, 6), G.WALL, dtype=int)
+    field[1:5, 1:5] = G.FREE
+
+    reachable = P.opponent_reachability(field, [(2, 2)], horizon=3)
+
+    assert tiles_of(reachable[0]) == {(2, 2)}
+    assert len(reachable) == 4  # horizon + 1, including t=0
+
+
+def test_opponent_reachability_grows_but_stays_within_walls():
+    field = np.full((6, 6), G.WALL, dtype=int)
+    field[1:5, 1:5] = G.FREE
+
+    reachable = P.opponent_reachability(field, [(2, 2)], horizon=5)
+
+    assert tiles_of(reachable[1]) == {(2, 2), (1, 2), (3, 2), (2, 1), (2, 3)}
+    # The 4x4 open pocket has 16 tiles; nothing outside it is ever reachable.
+    pocket = {(x, y) for x in range(1, 5) for y in range(1, 5)}
+    assert tiles_of(reachable[-1]) <= pocket
+
+
+def test_survival_profile_contested_reflects_overlapping_opponent_reach():
+    """Fleeing a bomb (so the search actually walks the frontier forward,
+    rather than certifying safety on the spot) past a tile a nearby opponent
+    could also reach should read as contested; a distant opponent should not
+    move the needle."""
+    field = corridor(7)
+    bombs = [((1, 1), 1)]
+    passable = G.free_mask(field, bombs=bombs)
+    danger = G.danger_map(field, bombs)
+    start = (3, 1)
+
+    nearby_opponent = P.opponent_reachability(field, [(6, 1)])
+    contested = P.survival_profile(
+        field, start, RIGHT, danger, passable, opponent_reachable=nearby_opponent
+    )
+
+    far_opponent = P.opponent_reachability(field, [(200, 200)])
+    uncontested = P.survival_profile(
+        field, start, RIGHT, danger, passable, opponent_reachable=far_opponent
+    )
+
+    assert contested.contested > uncontested.contested
+    assert uncontested.contested == pytest.approx(0.0)
+
+
+
+# --------------------------------------------------------------------------
+# Robust bomb gate (kit.safety.BOMB_GATES)
+# --------------------------------------------------------------------------
+
+
+def test_survival_profile_reports_exit_step_and_terminal_width():
+    from shared.kit import safety
+
+    # Corridor x=1..9. Bombing at x=1 leaves one way out, along the corridor.
+    field = corridor(9)
+    passable = G.free_mask(field)
+    danger = G.danger_map(field, [])
+    profile = P.survival_profile(field, (1, 1), BOMB, danger, passable)
+    assert profile.safe
+    assert profile.exit_step == s.BOMB_POWER + 1  # the first tile beyond the blast
+    assert profile.terminal_width == 1
+
+    # Open room: many end tiles, out of the blast just as quickly.
+    room = np.full((9, 9), G.WALL, dtype=int)
+    room[1:8, 1:8] = G.FREE
+    passable = G.free_mask(room)
+    danger = G.danger_map(room, [])
+    profile = P.survival_profile(room, (4, 4), BOMB, danger, passable)
+    assert profile.safe
+    assert profile.exit_step <= safety.ROBUST_EXIT_STEP
+    assert profile.terminal_width >= safety.ROBUST_TERMINAL_WIDTH
+
+
+def test_robust_gate_forbids_a_single_file_escape_but_not_an_open_one():
+    from shared.kit import safety
+
+    field = corridor(9)
+    passable = G.free_mask(field)
+    danger = G.danger_map(field, [])
+    escape = safety.action_mask(field, (1, 1), danger, passable, True, mode="hard")
+    robust = safety.action_mask(
+        field, (1, 1), danger, passable, True, mode="hard", bomb_gate="robust"
+    )
+    assert escape[BOMB], "a corridor escape is still an escape"
+    assert not robust[BOMB], "but it is not a redundant one"
+    # Only BOMB differs: the gate never touches movement.
+    assert np.array_equal(escape[:BOMB], robust[:BOMB])
+
+    room = np.full((9, 9), G.WALL, dtype=int)
+    room[1:8, 1:8] = G.FREE
+    passable = G.free_mask(room)
+    danger = G.danger_map(room, [])
+    robust = safety.action_mask(
+        room, (4, 4), danger, passable, True, mode="hard", bomb_gate="robust"
+    )
+    assert robust[BOMB]
+
+
+def test_bomb_gate_is_ignored_outside_hard_mode_and_validated():
+    from shared.kit import safety
+
+    field = corridor(9)
+    passable = G.free_mask(field)
+    danger = G.danger_map(field, [])
+    soft = safety.action_mask(field, (1, 1), danger, passable, True, mode="soft", bomb_gate="robust")
+    assert soft[BOMB]
+    with pytest.raises(ValueError):
+        safety.action_mask(field, (1, 1), danger, passable, True, mode="hard", bomb_gate="strict")

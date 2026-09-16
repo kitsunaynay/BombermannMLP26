@@ -3,29 +3,7 @@
 # Vendored from shared/kit/safety.py by tools/sync_kit.py.
 # Edit the original, then re-run:  python tools/sync_kit.py
 # --------------------------------------------------------------------------
-"""Action masking / safety filtering.
-
-This module never chooses an action. It only removes ones that are provably
-fatal, leaving the policy to pick among the survivors, so the agent stays a
-learner rather than a rule-based player behind a network.
-
-Three modes, so the filter can be ablated rather than assumed to help:
-
-``none``
-    No filtering. The agent may walk into walls and into blasts, and learns not
-    to from the ``INVALID_ACTION`` penalty and from dying. Baseline for the
-    ablation.
-``soft`` (default)
-    Removes only *certain, immediate* death: illegal moves, and moves onto a
-    tile that is lethal at the end of this step. No search.
-``hard``
-    Adds a full time-indexed survival search, so it also removes actions from
-    which no escape plan exists, including bomb drops with no way out. Given
-    ``threats``, the search also assumes those tiles bomb on this step.
-
-If every action is filtered out, death is unavoidable; the mask then falls back
-to the legal moves so the caller still has something to pick from.
-"""
+"""Action masking / safety filtering."""
 
 from __future__ import annotations
 
@@ -35,9 +13,26 @@ import numpy as np
 
 from .actions import ACTION_DELTAS, BOMB, MOVE_ACTIONS, N_ACTIONS
 from .geometry import in_bounds, lethal_at
-from .pathfind import SURVIVAL_HORIZON, safe_actions
+from .pathfind import SURVIVAL_HORIZON, safe_actions, survival_profile
 
 SAFETY_MODES: Tuple[str, ...] = ("none", "soft", "hard")
+
+#: How ``hard`` mode judges a bomb drop.
+#:
+#: ``escape``  any certified escape plan will do (one surviving tile suffices).
+#: ``robust``  the plan must also be *redundant*: out of the bomb's own blast
+#:             within ``ROBUST_EXIT_STEP`` moves, at least
+#:             ``ROBUST_TERMINAL_WIDTH`` distinct end tiles, and breadth of at
+#:             least ``ROBUST_BREADTH`` along the way. A single-tile escape
+#:             route is exactly what a second bomb, or a body in the corridor,
+#:             closes one step later -- Phase 12 measured that closing as the
+#:             cause of 73% of the agent's own deaths. The thresholds follow
+#:             the shield of ``survival_linear_ppo_v4``, whose 1v1 suicide
+#:             rate was lower than ours with an otherwise similar search.
+BOMB_GATES: Tuple[str, ...] = ("escape", "robust")
+ROBUST_EXIT_STEP = 3
+ROBUST_TERMINAL_WIDTH = 2
+ROBUST_BREADTH = 0.2
 
 Coord = Tuple[int, int]
 
@@ -102,16 +97,20 @@ def action_mask(
     mode: str = "soft",
     horizon: int = SURVIVAL_HORIZON,
     threats: Sequence[Coord] = (),
+    bomb_gate: str = "escape",
 ) -> np.ndarray:
     """Boolean mask over :data:`kit.actions.ACTIONS` for the requested mode.
 
     ``threats`` lists tiles to treat as bombing on this step, which only
     ``hard`` can act on because it is the only mode that plans ahead. It is
     supplied by the caller rather than derived here so the pessimism is a
-    measurable switch rather than a property of the mode.
+    measurable switch rather than a property of the mode. ``bomb_gate`` (see
+    :data:`BOMB_GATES`) likewise only applies to ``hard``.
     """
     if mode not in SAFETY_MODES:
         raise ValueError(f"Unknown safety mode {mode!r}; choose from {SAFETY_MODES}")
+    if bomb_gate not in BOMB_GATES:
+        raise ValueError(f"Unknown bomb gate {bomb_gate!r}; choose from {BOMB_GATES}")
 
     if mode == "none":
         return np.ones(N_ACTIONS, dtype=bool)
@@ -132,11 +131,36 @@ def action_mask(
             mask = safe_actions(
                 field, position, danger, passable, bomb_available, horizon
             )
+        if bomb_gate == "robust" and mask[BOMB]:
+            mask[BOMB] = robust_bomb_ok(
+                field, position, danger, passable, horizon, threats
+            )
 
     if mask.any():
         return mask
     # Doomed either way: hand back the legal moves rather than an empty choice.
     return legal if legal.any() else np.ones(N_ACTIONS, dtype=bool)
+
+
+def robust_bomb_ok(
+    field: np.ndarray,
+    position: Coord,
+    danger: np.ndarray,
+    passable: np.ndarray,
+    horizon: int = SURVIVAL_HORIZON,
+    threats: Sequence[Coord] = (),
+) -> bool:
+    """Whether dropping a bomb here leaves a *redundant* escape, not just one."""
+    profile = survival_profile(
+        field, position, BOMB, danger, passable, horizon=horizon, threats=threats
+    )
+    if not profile.safe:
+        return False
+    return (
+        0 <= profile.exit_step <= ROBUST_EXIT_STEP
+        and profile.terminal_width >= ROBUST_TERMINAL_WIDTH
+        and profile.breadth >= ROBUST_BREADTH
+    )
 
 
 def masked_argmax(values: np.ndarray, mask: np.ndarray) -> int:
