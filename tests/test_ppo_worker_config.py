@@ -1,12 +1,4 @@
-"""PPO worker processes must see the CLI overrides.
-
-`blib.factories.make_ppo_transform` and `make_ppo_reward_fn` run *inside* each
-SubprocVecEnv worker and rebuild their own `PPOConfig.load()`. A CLI flag that
-only mutates the parent's config object therefore never reaches the rollout.
-That is not hypothetical: until 2026-09-09 `--safety-mode hard` did nothing to
-PPO training, and a `hard` arm and a `soft` arm launched together produced
-bit-identical learning curves.
-"""
+"""PPO worker processes must see the CLI overrides."""
 
 import argparse
 import os
@@ -20,7 +12,7 @@ from tools.train_ppo import WORKER_VISIBLE, apply_overrides
 
 def _args(**overrides):
     base = dict(observation=None, safety_mode=None, survival_channels=None, bomb_gate=None,
-                learning_rate=None, entropy_coefficient=None, device="cpu", seed=0)
+                learning_rate=None, entropy_coefficient=None, event_reward=None, device="cpu", seed=0)
     base.update(overrides)
     return argparse.Namespace(**base)
 
@@ -29,6 +21,7 @@ def _args(**overrides):
 def clean_env(monkeypatch):
     for field in WORKER_VISIBLE:
         monkeypatch.delenv(f"AOT_PPO_{field.upper()}", raising=False)
+    monkeypatch.delenv("AOT_PPO_EVENT_REWARDS", raising=False)
 
 
 def test_safety_mode_is_exported_to_the_environment():
@@ -85,3 +78,24 @@ def test_bomb_gate_reaches_the_workers():
     assert PPOConfig.load().bomb_gate == "robust"
     apply_overrides(_args(bomb_gate="escape"))
     assert PPOConfig.load().bomb_gate == "escape"
+
+
+def test_event_reward_overrides_reach_the_workers(monkeypatch):
+    """The reward function runs inside each worker, so the weights travel as JSON."""
+    from tools.train_ppo import parse_event_rewards
+
+    assert parse_event_rewards(["OPPONENT_ELIMINATED=3", "TRAPPED_OPPONENT=1.5"]) == {
+        "OPPONENT_ELIMINATED": 3.0, "TRAPPED_OPPONENT": 1.5}
+    apply_overrides(_args(event_reward=["OPPONENT_ELIMINATED=3"]))
+    loaded = PPOConfig.load()
+    assert loaded.event_rewards["OPPONENT_ELIMINATED"] == 3.0
+    assert loaded.event_rewards["KILLED_OPPONENT"] == 15.0  # untouched defaults survive
+    apply_overrides(_args())
+    assert "AOT_PPO_EVENT_REWARDS" not in os.environ
+    assert PPOConfig.load().event_rewards["OPPONENT_ELIMINATED"] == 0.0
+
+
+def test_shipped_reward_table_is_unchanged_by_the_new_events():
+    table = PPOConfig().event_rewards
+    assert table["OPPONENT_ELIMINATED"] == 0.0
+    assert table["TRAPPED_OPPONENT"] == 0.0

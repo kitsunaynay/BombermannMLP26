@@ -1,10 +1,4 @@
-"""Tests for the PPO agent.
-
-The GAE tests matter most. Advantage estimation is the one piece of PPO whose
-bugs do not announce themselves -- a wrong discount or a missed episode boundary
-still trains, just toward the wrong thing -- so it is checked against an
-independent closed-form reference rather than against itself.
-"""
+"""Tests for the PPO agent."""
 
 import numpy as np
 import pytest
@@ -353,16 +347,21 @@ def test_schedules_anneal_between_the_configured_endpoints():
     assert 1e-5 < learner.learning_rate < 1e-3
 
 
-def test_evaluation_samples_rather_than_taking_the_argmax():
-    """The default must stay stochastic while the policy is high-entropy.
+def test_evaluation_takes_the_argmax_by_default():
+    """The shipped default is greedy, and the training path still samples.
 
-    Measured on Task 1 with the 250k-step checkpoint: sampling scores 31.6 coins
-    [29.6, 33.5], argmax scores 13.4 [10.2, 16.7]. A deterministic policy in a
-    near-deterministic environment has no way out of a movement cycle, so the
-    agent paces between two tiles until the step limit. Flipping this default
-    silently costs more than half the score, hence the regression guard.
+    History: with the high-entropy 250k-step Task-1 checkpoint, sampling scored
+    31.6 coins [29.6, 33.5] against 13.4 [10.2, 16.7] for argmax, so the default
+    was stochastic for Phases 6-19. Re-measured on the sharp stage-4 policy
+    (2026-09-16, 700 paired arenas vs rule_based x3): argmax 9.51 vs sampling
+    8.79, +0.72 [+0.23, +1.20], suicides 11.4% vs 15.7%, and ties in 1v1 and
+    the 4-player pool. The guard now pins the new default; the second assert
+    pins that rollouts (self.train) are unaffected, since PPO needs samples.
     """
-    assert PPOConfig().deterministic_eval is False
+    assert PPOConfig().deterministic_eval is True
+    import agent_code.attackontensor_ppo.callbacks as C
+    import inspect
+    assert "(not self.train) and self.config.deterministic_eval" in inspect.getsource(C)
 
 
 def test_deterministic_flag_actually_switches_behaviour():

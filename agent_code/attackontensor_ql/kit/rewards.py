@@ -3,28 +3,7 @@
 # Vendored from shared/kit/rewards.py by tools/sync_kit.py.
 # Edit the original, then re-run:  python tools/sync_kit.py
 # --------------------------------------------------------------------------
-"""Reward shaping primitives shared by both agents.
-
-The native reward is sparse: one point per coin, five per kill, nothing for the
-hundred navigation steps in between. Two mechanisms add signal, switchable
-independently so each one's effect can be measured separately.
-
-**Potential-based shaping.** With
-
-.. math::  F(s, a, s') = \\gamma \\Phi(s') - \\Phi(s)
-
-Ng, Harada & Russell (1999) show the optimal policy is unchanged for any
-potential :math:`\\Phi`. It also addresses reward cycling, since contributions
-around a loop telescope to zero and pacing back and forth earns nothing.
-Terminal states take :math:`\\Phi = 0`, which is the condition for the result to
-carry over to episodic tasks.
-
-**Custom events.** Denser and easier to interpret, but not policy-invariant:
-these can bias the optimum, hence the switch. Opposing pairs (toward/away,
-escaped/entered) are emitted symmetrically so moving back and forth nets out.
-
-Weights live in each agent's own config; only the mechanics live here.
-"""
+"""Reward shaping primitives."""
 
 from __future__ import annotations
 
@@ -45,6 +24,7 @@ USEFUL_BOMB = "USEFUL_BOMB"
 USELESS_BOMB = "USELESS_BOMB"
 SUICIDAL_BOMB = "SUICIDAL_BOMB"
 SURVIVED_STEP = "SURVIVED_STEP"
+TRAPPED_OPPONENT = "TRAPPED_OPPONENT"
 
 CUSTOM_EVENTS = (
     MOVED_TOWARD_COIN,
@@ -56,7 +36,11 @@ CUSTOM_EVENTS = (
     USELESS_BOMB,
     SUICIDAL_BOMB,
     SURVIVED_STEP,
+    TRAPPED_OPPONENT,
 )
+
+#: How close an opponent has to be for a body-block to count as ours.
+TRAP_RADIUS = 2
 
 #: Distance substituted when no target is reachable. Keeps the potential finite
 #: and bounded instead of lurching as targets appear and disappear.
@@ -177,9 +161,15 @@ def detect_custom_events(
         # The agent died this step, so there is no post-state to compare with.
         return detected
 
-    _, new_position, _, _, _, _, new_danger, _ = P.game_state_context(new_game_state)
+    new_field, new_position, _, _, new_others, _, new_danger, new_passable = (
+        P.game_state_context(new_game_state)
+    )
     nx, ny = new_position
     is_in_danger = new_danger[nx, ny] != G.SAFE
+
+    # --- body-blocking an opponent inside a blast ---------------------------
+    if new_others and trapped_opponents(new_field, new_position, new_others, new_danger, new_passable):
+        detected.append(TRAPPED_OPPONENT)
 
     if was_in_danger and not is_in_danger:
         detected.append(ESCAPED_DANGER)
@@ -199,6 +189,42 @@ def detect_custom_events(
         detected.append(SURVIVED_STEP)
 
     return detected
+
+
+def trapped_opponents(
+    field,
+    position,
+    others: Sequence,
+    danger,
+    passable,
+) -> List:
+    """Opponents whose only way out of a blast is the tile we stand on.
+
+    An opponent counts as trapped when it is within ``TRAP_RADIUS`` (Manhattan),
+    its own tile is inside a live danger zone, and exactly one of its four
+    neighbours is steppable -- and that neighbour is ``position``. ``passable``
+    is ``free_mask(field, bombs, others)``, so bombs and other agents already
+    block, while our own tile still reads as free.
+
+    The danger condition matters: without it, standing next to a pocket would
+    pay every step of a round, and the agent would learn to loiter instead of
+    to bomb. Tied to a ticking bomb, the reward is bounded by the fuse.
+    """
+    px, py = position
+    trapped = []
+    for ox, oy in others:
+        if abs(ox - px) + abs(oy - py) > TRAP_RADIUS:
+            continue
+        if not G.in_bounds(field, ox, oy) or danger[ox, oy] == G.SAFE:
+            continue
+        exits = [
+            (ox + dx, oy + dy)
+            for dx, dy in ((0, -1), (1, 0), (0, 1), (-1, 0))
+            if G.in_bounds(field, ox + dx, oy + dy) and passable[ox + dx, oy + dy]
+        ]
+        if len(exits) == 1 and exits[0] == (px, py):
+            trapped.append((ox, oy))
+    return trapped
 
 
 def reward_from_events(events: Sequence[str], weights: Mapping[str, float]) -> float:

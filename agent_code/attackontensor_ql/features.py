@@ -1,29 +1,3 @@
-"""Discrete feature extraction for the tabular Q-learning agent.
-
-Three kinds of feature: situational awareness (``neighbour_*``), pathfinding
-(``coin_dir``, ``crate_dir``) and life-saving (``danger_here``, ``escape_dir``,
-``escape_if_bomb``).
-
-Every feature is a small non-negative integer, so a state is a tuple of ints and
-can key a dictionary directly. Cardinalities::
-
-    coin_dir         5   direction code 0..4
-    crate_dir        5
-    escape_dir       5
-    danger_here      5   0 = lethal now ... 4 = safe
-    neighbour_*      3   each: 0 free, 1 blocked, 2 lethal
-    bomb_available   2
-    crates_adjacent  3   0, 1, >=2
-    opponent_near    3   none / within 3 / adjacent
-    escape_if_bomb   2
-
-The full variant spans about 1.8M states but only reachable ones get allocated,
-in practice 10^4..10^5. The compact variant is what Tasks 1-2 train on.
-
-``state_to_features`` is pure and deterministic: the BFS in :mod:`kit.pathfind`
-expands neighbours in a fixed order.
-"""
-
 from __future__ import annotations
 
 from typing import Dict, NamedTuple, Optional, Sequence, Tuple
@@ -36,10 +10,10 @@ from .kit import pathfind as P
 from .kit import symmetry
 from .kit.actions import DIR_DELTAS
 
-#: Neighbour tile encoding.
+# state is tuple of small ints keying dict directly; ~10^4-10^5 reachable of 1.8M possible
 NB_FREE, NB_BLOCKED, NB_LETHAL = 0, 1, 2
 
-#: ``danger_here`` saturates here; 4 means "no known threat".
+# danger values capped at 4 (no known threat)
 DANGER_CAP = 4
 
 
@@ -50,7 +24,6 @@ def _neighbour_code(
     x: int,
     y: int,
 ) -> int:
-    """Classify the tile in one direction as free, blocked, or lethal."""
     if not G.in_bounds(field, x, y):
         return NB_BLOCKED
     if not passable[x, y]:
@@ -61,7 +34,6 @@ def _neighbour_code(
 
 
 def _opponent_proximity(position: Tuple[int, int], others: Sequence[Tuple[int, int]]) -> int:
-    """0 = none nearby, 1 = within three tiles, 2 = orthogonally adjacent."""
     if not others:
         return 0
     x, y = position
@@ -73,12 +45,47 @@ def _opponent_proximity(position: Tuple[int, int], others: Sequence[Tuple[int, i
     return 0
 
 
-def compute_all_features(game_state: dict) -> Dict[str, int]:
-    """Every feature, keyed by name, before the variant selects a subset.
+def _dead_end_exit(field: np.ndarray, x: int, y: int) -> Optional[Tuple[int, int]]:
+    for dx, dy in ((0, -1), (1, 0), (0, 1), (-1, 0)):
+        nx, ny = x + dx, y + dy
+        if G.in_bounds(field, nx, ny) and field[nx, ny] == G.FREE:
+            return nx, ny
+    return None
 
-    Kept separate from :func:`state_to_features` so diagnostics and tests can
-    inspect individual features, and so ablations cost nothing at runtime.
-    """
+
+def _trap_features(
+    field: np.ndarray,
+    position: Tuple[int, int],
+    others: Sequence[Tuple[int, int]],
+) -> Dict[str, int]:
+    # rule_based_agent bombs dead ends; trappable if we block exit
+    x, y = position
+    in_dead_end = int(G.is_dead_end(field, x, y))
+
+    opponent_in_dead_end = 0
+    can_seal_opponent = 0
+    for ox, oy in others:
+        if abs(ox - x) + abs(oy - y) > 3:
+            continue
+        if not G.is_dead_end(field, ox, oy):
+            continue
+        opponent_in_dead_end = 1
+        exit_tile = _dead_end_exit(field, ox, oy)
+        if exit_tile is None:
+            continue
+        ex, ey = exit_tile
+        if (x, y) == (ex, ey) or abs(ex - x) + abs(ey - y) == 1:
+            can_seal_opponent = 1
+
+    return {
+        "in_dead_end": in_dead_end,
+        "opponent_in_dead_end": opponent_in_dead_end,
+        "can_seal_opponent": can_seal_opponent,
+    }
+
+
+def compute_all_features(game_state: dict) -> Dict[str, int]:
+    # compute all features; variant selects which go in the key
     (
         field,
         position,
@@ -92,11 +99,11 @@ def compute_all_features(game_state: dict) -> Dict[str, int]:
 
     x, y = position
 
-    # Navigation. Bombs and opponents block movement, so BFS runs on `passable`.
+    # navigation
     dist, first_step = P.bfs(field, position, passable)
     coin_dir = P.direction_to_nearest(dist, first_step, coins)
 
-    # Crates are not walkable, so we path toward the free tiles beside them.
+    # crates are blocked; path to adjacent tile instead
     crate_dir = 0
     crates = G.crate_positions(field)
     if crates:
@@ -106,14 +113,13 @@ def compute_all_features(game_state: dict) -> Dict[str, int]:
                 nx, ny = cx + dx, cy + dy
                 if G.in_bounds(field, nx, ny) and dist[nx, ny] >= 0:
                     approach.add((nx, ny))
-        # Sorted, not raw set order: iteration order over a set of tuples is a
-        # hash artefact, which would make tie-breaking between equidistant
-        # crates arbitrary and irreproducible.
         crate_dir = P.direction_to_nearest(dist, first_step, sorted(approach))
 
+    # danger state
     danger_here = int(min(danger[x, y], DANGER_CAP))
     escape_dir = P.escape_direction(field, position, danger, passable) if danger_here < DANGER_CAP else 0
 
+    # adjacent tiles state
     neighbours = {}
     for name, direction in (
         ("neighbour_up", 1),
@@ -124,6 +130,7 @@ def compute_all_features(game_state: dict) -> Dict[str, int]:
         dx, dy = DIR_DELTAS[direction]
         neighbours[name] = _neighbour_code(field, passable, danger, x + dx, y + dy)
 
+    # bomb safety
     escape_if_bomb = 0
     if bomb_available:
         escape_if_bomb = int(P.has_escape_after_bomb(field, position, danger, passable))
@@ -138,27 +145,14 @@ def compute_all_features(game_state: dict) -> Dict[str, int]:
         "crates_adjacent": min(G.adjacent_crates(field, x, y), 2),
         "opponent_near": _opponent_proximity(position, others),
         "escape_if_bomb": escape_if_bomb,
+        **_trap_features(field, position, others),
     }
 
 
-# ---------------------------------------------------------------------------
-# D4 canonicalisation
-# ---------------------------------------------------------------------------
-# Map each state to a fixed representative of its symmetry orbit. Shrinks the
-# table by up to 8x and shares experience between the four corners. The action
-# comes back in the canonical frame and needs the inverse transform applied.
-#
-# Canonicalisation acts on the feature tuple, and the direction features are
-# exactly equivariant only when the nearest target is unique. Equidistant
-# targets need a tie-break, and no deterministic rule breaks a symmetric tie
-# symmetrically, so mirrored boards can land on different keys. That costs some
-# sharing but never correctness: key and transform are computed together.
-# tests/test_ql_agent.py covers both cases.
-
-#: Direction-valued features, which rotate with the board.
+# canonicalize to d4 orbit representative; shrinks table 8x; share corners
+# direction features rotate cleanly only with unique nearest target
 DIRECTION_FEATURES = ("coin_dir", "crate_dir", "escape_dir")
 
-#: Neighbour feature for each direction code.
 NEIGHBOUR_BY_DIR = {
     1: "neighbour_up",
     2: "neighbour_right",
@@ -168,15 +162,14 @@ NEIGHBOUR_BY_DIR = {
 
 
 def _transform_values(values: Dict[str, int], transform: str) -> Dict[str, int]:
-    """Re-express features as seen from a D4-transformed board."""
+    # rotate feature values to canonical frame
     out = dict(values)
 
     for name in DIRECTION_FEATURES:
         if name in values:
             out[name] = symmetry.transform_direction(values[name], transform)
 
-    # A neighbour observed in direction d is observed in direction T(d) after
-    # the transform. Reads come from `values` so the four writes cannot alias.
+    # neighbour direction rotates; read from values to avoid clobbering
     for direction, name in NEIGHBOUR_BY_DIR.items():
         moved = symmetry.transform_direction(direction, transform)
         out[NEIGHBOUR_BY_DIR[moved]] = values[name]
@@ -185,13 +178,9 @@ def _transform_values(values: Dict[str, int], transform: str) -> Dict[str, int]:
 
 
 class FeatureView(NamedTuple):
-    """A canonicalised state key plus the transform used to reach it.
-
-    ``transform`` is what maps the *real* board into the canonical frame, so an
-    action chosen against ``key`` must be pushed through
-    :func:`kit.symmetry.inverse_transform_action` before being played.
-    """
-
+    # transform maps the real board into the canonical frame; an action
+    # chosen against `key` must go through symmetry.inverse_transform_action
+    # before it's actually played.
     key: Tuple[int, ...]
     transform: str
 
@@ -200,7 +189,7 @@ def extract(
     game_state: Optional[dict],
     config: Optional[QLConfig] = None,
 ) -> Optional[FeatureView]:
-    """Feature key for a game state, canonicalised when the config asks for it."""
+    # extract features and canonicalize if symmetry enabled
     if game_state is None:
         return None
 
@@ -211,6 +200,7 @@ def extract(
     if not config.use_symmetry:
         return FeatureView(tuple(values[name] for name in names), "identity")
 
+    # find lexicographically smallest key among d4 transforms
     best_key: Optional[Tuple[int, ...]] = None
     best_transform = "identity"
     for transform in symmetry.TRANSFORMS:
@@ -226,18 +216,11 @@ def state_to_features(
     game_state: Optional[dict],
     config: Optional[QLConfig] = None,
 ) -> Optional[Tuple[int, ...]]:
-    """Convert a game state into a hashable discrete feature tuple.
-
-    Returns ``None`` for a missing state. The framework hands out ``None`` for
-    dead agents (environment.py:397) and both training callbacks can receive it,
-    so every caller must tolerate it.
-    """
     view = extract(game_state, config)
     return None if view is None else view.key
 
 
 def feature_cardinalities(config: QLConfig) -> Tuple[int, ...]:
-    """Per-feature cardinality, for reporting the theoretical state-space size."""
     sizes = {
         "coin_dir": 5,
         "crate_dir": 5,
@@ -251,12 +234,14 @@ def feature_cardinalities(config: QLConfig) -> Tuple[int, ...]:
         "crates_adjacent": 3,
         "opponent_near": 3,
         "escape_if_bomb": 2,
+        "in_dead_end": 2,
+        "opponent_in_dead_end": 2,
+        "can_seal_opponent": 2,
     }
     return tuple(sizes[name] for name in config.feature_names)
 
 
 def state_space_size(config: QLConfig) -> int:
-    """Theoretical upper bound on distinct states for a variant."""
     total = 1
     for size in feature_cardinalities(config):
         total *= size

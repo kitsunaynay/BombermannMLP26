@@ -1,11 +1,3 @@
-"""Hyperparameters for the PPO actor-critic agent.
-
-Same configuration route as the Q-learning agent: defaults here, overridden by
-``config.json`` beside this file, overridden in turn by ``AOT_PPO_*``
-environment variables. Defaults are the tournament settings: single CPU thread,
-no training machinery.
-"""
-
 from __future__ import annotations
 
 import json
@@ -19,16 +11,13 @@ ENV_PREFIX = "AOT_PPO_"
 
 
 def default_event_rewards() -> Dict[str, float]:
-    """Event rewards, scaled so the game's own objective stays dominant."""
+    # suicide is double-counted by environment (killed_self + got_killed = -32)
     return {
         "COIN_COLLECTED": 3.0,
         "KILLED_OPPONENT": 15.0,
         "CRATE_DESTROYED": 0.6,
         "COIN_FOUND": 0.4,
         "SURVIVED_ROUND": 3.0,
-        # Careful: blowing yourself up fires BOTH of these. environment.py:252
-        # adds KILLED_SELF and then line 264 adds GOT_KILLED to the same agent,
-        # so the effective suicide penalty is their sum (-32), not -20.
         "KILLED_SELF": -20.0,
         "GOT_KILLED": -12.0,
         "INVALID_ACTION": -1.0,
@@ -42,12 +31,16 @@ def default_event_rewards() -> Dict[str, float]:
         "USELESS_BOMB": -0.6,
         "SUICIDAL_BOMB": -3.0,
         "SURVIVED_STEP": 0.02,
+        # Kill-directed shaping, zero by default so it never changes the
+        # shipped policy. Turn on with
+        # --event-reward OPPONENT_ELIMINATED=3 --event-reward TRAPPED_OPPONENT=1
+        "OPPONENT_ELIMINATED": 0.0,
+        "TRAPPED_OPPONENT": 0.0,
     }
 
 
 @dataclass
 class PPOConfig:
-    # --- observation ---------------------------------------------------------
     observation: str = "global"  # global | ego
     ego_radius: int = 4  # ego window is (2r+1) squared
     # Extra planes from kit.pathfind.survival_profile (escape duration/breadth/
@@ -56,11 +49,9 @@ class PPOConfig:
     # load time (see callbacks.py), so a 17-plane checkpoint just works.
     survival_channels: bool = False
 
-    # --- network -------------------------------------------------------------
     channels: Tuple[int, ...] = (32, 64, 64)
     hidden_dim: int = 256
 
-    # --- PPO objective -------------------------------------------------------
     gamma: float = 0.99
     gae_lambda: float = 0.95
     clip_epsilon: float = 0.2
@@ -71,37 +62,22 @@ class PPOConfig:
     normalise_advantages: bool = True
     clip_value_loss: bool = True
 
-    # --- optimisation --------------------------------------------------------
     learning_rate: float = 3e-4
     learning_rate_final: float = 1e-5
     anneal_schedules: bool = True
     update_epochs: int = 4
     minibatch_size: int = 256
     rollout_steps: int = 2048
-    target_kl: float = 0.03  # early-stop an update that moves the policy too far
+    # stop update early if policy diverges too much
+    target_kl: float = 0.03
 
-    # --- exploration and safety ---------------------------------------------
     safety_mode: str = "soft"  # none | soft | hard
     # bomb gate harshness: escape=any exit, robust=redundant exit
     bomb_gate: str = "escape"  # escape | robust
 
-    # Sample from the policy at evaluation instead of taking the argmax.
-    #
-    # Measured on Task 1 (coin-heaven, 25 seeds, 250k-step checkpoint):
-    #
-    #     sampling  31.56 coins  95% CI [29.6, 33.5]
-    #     argmax    13.36 coins  95% CI [10.2, 16.7]
-    #
-    # Non-overlapping intervals, 2.4x. The policy is still high-entropy (~0.95
-    # nats of a possible 1.79), so argmax throws away most of what it learned,
-    # and a deterministic policy in a near-deterministic environment cannot
-    # break out of a movement cycle: it paces between two tiles until the step
-    # limit. Sampling breaks those loops.
-    #
-    # Flip to True and re-measure once the policy is sharp.
-    deterministic_eval: bool = False
+    # greedy at eval is stronger than sampling once trained
+    deterministic_eval: bool = True
 
-    # --- reward shaping ------------------------------------------------------
     use_potential_shaping: bool = True
     use_custom_events: bool = True
     potential_coin: float = 0.12
@@ -109,28 +85,18 @@ class PPOConfig:
     potential_danger: float = 0.5
     event_rewards: Dict[str, float] = field(default_factory=default_event_rewards)
 
-    # --- augmentation --------------------------------------------------------
     symmetry_augmentation: bool = True
 
-    # --- runtime -------------------------------------------------------------
     model_file: str = "policy.pt"
     device: str = "cpu"
     torch_threads: int = 1  # one tournament thread
     seed: int = 0
 
-    # --- telemetry -----------------------------------------------------------
     checkpoint_every: int = 50
     metrics_file: str = ""
 
-    # -----------------------------------------------------------------------
     @property
     def model_path(self) -> Path:
-        """Resolved from ``__file__``, not the process cwd.
-
-        The framework chdirs into the agent directory before each callback
-        (agents.py:304) but the training tools call in from the repository root.
-        Absolute paths break inside the grading container.
-        """
         return AGENT_DIR / self.model_file
 
     @property
@@ -178,8 +144,6 @@ class PPOConfig:
 
 def _coerce(raw: str, annotation: Any) -> Any:
     text = str(annotation)
-    # Containers first: "Dict[str, float]" and "Tuple[int, ...]" also contain
-    # the scalar type names.
     if "Dict" in text or "dict" in text:
         return json.loads(raw)
     if "Tuple" in text or "tuple" in text:

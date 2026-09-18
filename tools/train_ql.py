@@ -1,16 +1,4 @@
-#!/usr/bin/env python3
-"""Curriculum-driven training for the Q-learning agent.
-
-Drives the framework's own training loop (``main.py play --train 1``) rather
-than a private one. That loop is already proven correct and is the one the brief
-describes, and the Q-learning agent is cheap enough that its throughput is not
-the bottleneck -- roughly 30 rounds/s solo.
-
-Configuration is passed as ``AOT_QL_*`` environment variables, so no
-tournament-critical file is touched.
-
-Examples::
-
+"""
     python tools/train_ql.py --stage 1                      # coin-heaven
     python tools/train_ql.py --stage 2 --episodes 6000      # crates
     python tools/train_ql.py --all                          # tasks 1-4 in order
@@ -76,7 +64,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--no-shaping", action="store_true")
     parser.add_argument("--no-custom-events", action="store_true")
     parser.add_argument("--single-q", action="store_true", help="disable Double Q-learning")
-    parser.add_argument("--variant", choices=("compact", "full"), default=None)
+    parser.add_argument("--variant", choices=("compact", "full", "trap"), default=None)
     parser.add_argument("--checkpoint-every", type=int, default=250,
                         help="rounds between snapshots. Selection can only "
                              "promote a snapshot it took, and the policy "

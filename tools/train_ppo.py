@@ -1,28 +1,4 @@
-#!/usr/bin/env python3
-"""Parallel PPO training.
-
-Collects rollouts from many :class:`blib.fast_env.BomberEnv` instances running in
-worker processes, batches the forward pass in the parent, and writes the same
-``policy.pt`` the tournament agent loads. The brief permits this explicitly --
-*"multiprocessing or anything else that comes to your mind to improve training is
-perfectly fine"* -- while the submitted agent stays single-process.
-
-On hardware: this workload is environment-bound, not GPU-bound. The network is
-about 17M multiply-accumulates per forward pass, which a CPU handles in under a
-millisecond, whereas one step of the game with three ``rule_based_agent``
-opponents costs roughly a millisecond of pure Python *per opponent*. So the way
-to use several GPUs here is to run several independent seeds or hyperparameter
-configurations at once (``--device cuda:N --seed S``), not to shard one tiny
-network across them.
-
-Checkpoints go to ``agent_code/attackontensor_ppo/checkpoints/<run-id>/``, never
-straight to ``policy.pt``, so parallel runs cannot overwrite one another and an
-exploratory run cannot replace the artifact the tournament agent loads. After
-training, the snapshots are scored on held-out seeds; ``--promote`` copies the
-winner into ``policy.pt``.
-
-Examples::
-
+"""
     python tools/train_ppo.py --stage 1 --workers 8 --total-steps 500000
     python tools/train_ppo.py --stage 4 --workers 16 --device cuda:0 --wandb
     python tools/train_ppo.py --stage 4 --workers 16 --promote --benchmark-seeds 30
@@ -89,6 +65,13 @@ def build_parser() -> argparse.ArgumentParser:
                         action="store_false", help="base 13 planes only")
     parser.add_argument("--learning-rate", type=float, default=None)
     parser.add_argument("--entropy-coefficient", type=float, default=None)
+    parser.add_argument("--event-reward", action="append", default=None, metavar="EVENT=VALUE",
+                        help="override one event's reward weight (repeatable); reaches "
+                             "the workers as AOT_PPO_EVENT_REWARDS")
+    parser.add_argument("--threads", type=int, default=None,
+                        help="torch threads for the learner's update (default: "
+                             "min(4, workers)). On a CPU-only node the update is "
+                             "the bottleneck; 16 threads is ~2.2x faster than 4")
     parser.add_argument("--checkpoint-every", type=int, default=20, help="iterations")
     parser.add_argument("--log-every", type=int, default=1, help="iterations")
     parser.add_argument("--run-id", default=None)
@@ -114,6 +97,17 @@ def build_parser() -> argparse.ArgumentParser:
 #: `entropy_coefficient` are deliberately absent: they are used only by the
 #: learner, in this process.
 WORKER_VISIBLE = ("observation", "safety_mode", "survival_channels", "bomb_gate")
+
+
+def parse_event_rewards(items) -> dict:
+    """``["OPPONENT_ELIMINATED=3", "TRAPPED_OPPONENT=1"]`` -> ``{...: float}``."""
+    parsed = {}
+    for item in items or ():
+        name, sep, value = item.partition("=")
+        if not sep or not name.strip():
+            raise SystemExit(f"--event-reward expects EVENT=VALUE, got {item!r}")
+        parsed[name.strip()] = float(value)
+    return parsed
 
 
 def apply_overrides(args) -> PPOConfig:
@@ -145,6 +139,16 @@ def apply_overrides(args) -> PPOConfig:
     for field in WORKER_VISIBLE:
         os.environ[f"AOT_PPO_{field.upper()}"] = str(getattr(config, field))
 
+    # Event weights are consumed by the reward function, which also runs in
+    # the workers. The override travels as JSON on top of whatever the
+    # environment already carried, so a stale variable cannot leak in either.
+    overrides = parse_event_rewards(args.event_reward)
+    if overrides:
+        config.event_rewards.update(overrides)
+        os.environ["AOT_PPO_EVENT_REWARDS"] = json.dumps(overrides)
+    else:
+        os.environ.pop("AOT_PPO_EVENT_REWARDS", None)
+
     return config
 
 
@@ -159,7 +163,7 @@ def main(argv=None) -> int:
     seed_everything(args.seed)
     # The parent only ever does batched forward/backward passes; letting torch
     # also fan out across cores would fight the environment workers for them.
-    torch.set_num_threads(max(1, min(4, args.workers)))
+    torch.set_num_threads(max(1, args.threads if args.threads else min(4, args.workers)))
 
     # Snapshots live under the run id, so concurrent runs cannot overwrite each
     # other and an exploratory run cannot clobber policy.pt. Promotion into

@@ -1,17 +1,3 @@
-"""Hyperparameters for the feature-based Q-learning agent.
-
-The framework gives an agent no command line of its own; ``main.py`` decides
-everything. Configuration arrives by two routes, both of which leave the
-tournament-critical files untouched:
-
-* ``config.json`` next to this file, if it exists;
-* environment variables prefixed ``AOT_QL_`` (e.g. ``AOT_QL_EPSILON_START=0.5``),
-  which is how ``tools/train_ql.py`` drives curriculum stages.
-
-Environment variables win over the JSON file, which wins over these defaults.
-The defaults are the *tournament* settings: no exploration, greedy play.
-"""
-
 from __future__ import annotations
 
 import json
@@ -23,9 +9,9 @@ from typing import Any, Dict, List, Optional, Tuple
 AGENT_DIR = Path(__file__).resolve().parent
 ENV_PREFIX = "AOT_QL_"
 
-#: Feature subsets. Ablating the feature set is a config change, not a code edit.
+# Feature subsets, swappable per curriculum stage without touching code.
 VARIANTS: Dict[str, Tuple[str, ...]] = {
-    # Tasks 1-2: navigation and self-preservation. No opponents, no crate hunting.
+    # Navigation and self-preservation only: no opponents, no crate hunting.
     "compact": (
         "coin_dir",
         "escape_dir",
@@ -37,7 +23,7 @@ VARIANTS: Dict[str, Tuple[str, ...]] = {
         "bomb_available",
         "escape_if_bomb",
     ),
-    # Tasks 3-4: adds crate targeting and opponent awareness.
+    # Adds crate targeting and opponent awareness.
     "full": (
         "coin_dir",
         "crate_dir",
@@ -52,32 +38,41 @@ VARIANTS: Dict[str, Tuple[str, ...]] = {
         "opponent_near",
         "escape_if_bomb",
     ),
+    # "full" plus dead-end / trap awareness, since rule_based_agent bombs from
+    # dead ends without lookahead and treats our body as a wall.
+    "trap": (
+        "coin_dir",
+        "crate_dir",
+        "escape_dir",
+        "danger_here",
+        "neighbour_up",
+        "neighbour_right",
+        "neighbour_down",
+        "neighbour_left",
+        "bomb_available",
+        "crates_adjacent",
+        "opponent_near",
+        "escape_if_bomb",
+        "in_dead_end",
+        "opponent_in_dead_end",
+        "can_seal_opponent",
+    ),
 }
 
 
 def default_event_rewards() -> Dict[str, float]:
-    """Event rewards.
-
-    Scaled so the game's own scoring (1 per coin, 5 per kill) stays dominant and
-    the auxiliary terms only break ties. Auxiliary rewards are absent in official
-    games, so they must not overwhelm the real objective.
-    """
     return {
-        # --- real game objectives -------------------------------------------
         "COIN_COLLECTED": 3.0,
         "KILLED_OPPONENT": 15.0,
         "CRATE_DESTROYED": 0.6,
         "COIN_FOUND": 0.4,
         "SURVIVED_ROUND": 3.0,
-        # --- penalties -------------------------------------------------------
-        # Careful: blowing yourself up fires BOTH of these. environment.py:252
-        # adds KILLED_SELF and then line 264 adds GOT_KILLED to the same agent,
-        # so the effective suicide penalty is their sum (-32), not -20.
+        # Suicide fires both KILLED_SELF and GOT_KILLED for the same agent
+        # (environment.py:252/264), so the real penalty is their sum, -32.
         "KILLED_SELF": -20.0,
         "GOT_KILLED": -12.0,
         "INVALID_ACTION": -1.0,
         "WAITED": -0.15,
-        # --- custom events (see rewards.py) ----------------------------------
         "MOVED_TOWARD_COIN": 0.35,
         "MOVED_AWAY_FROM_COIN": -0.4,
         "ESCAPED_DANGER": 1.0,
@@ -92,16 +87,13 @@ def default_event_rewards() -> Dict[str, float]:
 
 @dataclass
 class QLConfig:
-    # --- representation ------------------------------------------------------
     variant: str = "full"
     use_symmetry: bool = True
 
-    # --- exploration ---------------------------------------------------------
     epsilon_start: float = 0.0  # tournament default: pure greedy
     epsilon_end: float = 0.0
     epsilon_decay_rounds: float = 2000.0
 
-    # --- learning ------------------------------------------------------------
     gamma: float = 0.95
     alpha: float = 0.1
     alpha_decay: float = 0.0  # 0 disables the visit-count schedule
@@ -110,19 +102,14 @@ class QLConfig:
     double_q: bool = True
     optimistic_init: float = 0.0
 
-    # --- safety filter -------------------------------------------------------
     safety_mode: str = "soft"  # none | soft | hard
 
-    # Treat every armed opponent as bombing from where it stands when the
-    # `hard` escape search plans. Ignored by `none` and `soft`, which do not
-    # plan. Off by default so it can be measured as an ablation arm.
-    #
-    # Motivation: with opponents that block but never bomb the agent suicides
-    # 0.00 of 40 rounds on `classic`; with opponents that bomb, 0.38. The
-    # escape plan is certified against the bombs visible when it commits.
+    # When the "hard" escape search plans, treat every armed opponent as
+    # bombing from its current tile. Off by default (kept as an ablation
+    # arm); with opponents that actually bomb rather than just block,
+    # suicide rate goes up noticeably without this on.
     opponent_bomb_lookahead: bool = False
 
-    # --- reward shaping ------------------------------------------------------
     use_potential_shaping: bool = True
     use_custom_events: bool = True
     potential_coin: float = 0.12
@@ -130,40 +117,32 @@ class QLConfig:
     potential_danger: float = 0.5
     event_rewards: Dict[str, float] = field(default_factory=default_event_rewards)
 
-    # --- evaluation ----------------------------------------------------------
-    # Exploration rate used when NOT training. 0.0 is pure greedy, the
-    # tournament default and the historical behaviour.
-    #
-    # Why this exists: a deterministic policy in a near-deterministic
-    # environment can enter a movement limit cycle it cannot leave -- the agent
-    # paces between two tiles until the step limit, scoring ~0 while surviving
-    # 100% of rounds. Measured in 52 of 71 collapsed Task-2 snapshots, and the
-    # PPO agent hit the identical failure in Phase 0 (argmax 13.36 vs sampling
-    # 31.56 coins). A small amount of evaluation noise is the cheapest known
-    # escape. Left at 0.0 until measured.
+    # Exploration rate used outside training. 0.0 (pure greedy) is the
+    # tournament default. A fully greedy policy in a near-deterministic
+    # environment can get stuck pacing between two tiles for the rest of the
+    # round; a small nonzero value is the cheapest way out of that, but it
+    # trades off against playing worse on average, so it stays at 0.0 unless
+    # measured to help.
     eval_epsilon: float = 0.0
 
-    # --- reproducibility -----------------------------------------------------
-    # Seed for the agent's own RNG: epsilon-greedy draws, greedy tie-breaks and
-    # the Double-Q table coin flip. Negative means "unseeded", which is the
-    # tournament default -- there the framework decides the seeding and a fixed
-    # one would make every game identical. tools/train_ql.py sets it per run so
-    # that a seeded replicate is actually replayable.
+    # RNG seed for epsilon-greedy draws, tie-breaks and the Double-Q coin
+    # flip. Negative means unseeded, the tournament default (the framework
+    # controls seeding there, and a fixed seed would make every game
+    # identical). tools/train_ql.py sets a real seed per run so a replicate
+    # is actually replayable.
     seed: int = -1
 
-    # --- persistence and telemetry ------------------------------------------
     model_file: str = "q_table.pkl"
     checkpoint_every: int = 200
     metrics_file: str = ""  # empty disables the per-round CSV
 
-    # Directory for periodic snapshots kept alongside the live model. With a
-    # constant learning rate the Q-values track a moving target instead of
-    # converging, so the table a run ends on is not reliably its best. Snapshots
-    # let tools/train_ql.py select on held-out seeds rather than trusting the
-    # last write. Empty disables snapshotting.
+    # Directory for periodic snapshots kept alongside the live table. With a
+    # constant learning rate the Q-values track a moving target rather than
+    # converging, so the table a run happens to end on isn't reliably its
+    # best; snapshots let tools/train_ql.py pick the best one on held-out
+    # seeds instead of trusting the last write. Empty disables snapshotting.
     snapshot_dir: str = "checkpoints"
 
-    # -----------------------------------------------------------------------
     @property
     def feature_names(self) -> Tuple[str, ...]:
         try:
@@ -175,22 +154,17 @@ class QLConfig:
 
     @property
     def rng_seed(self) -> Optional[int]:
-        """``seed`` as numpy wants it: ``None`` when unseeded."""
         return None if self.seed < 0 else int(self.seed)
 
     @property
     def model_path(self) -> Path:
-        """Absolute path to the Q-table.
-
-        Resolved from ``__file__`` rather than the process cwd. The framework
-        chdirs into the agent directory before each callback (agents.py:304) but
-        the training tools call in from the repository root. Hand-written
-        absolute paths break inside the grading container.
-        """
+        # Resolved from __file__, not cwd: the framework chdirs into the
+        # agent directory before each callback, but training tools run from
+        # the repo root. An absolute path here would break in the grading
+        # container.
         return AGENT_DIR / self.model_file
 
     def epsilon(self, round_index: int) -> float:
-        """Exponentially decayed exploration rate for a given round."""
         if self.epsilon_decay_rounds <= 0:
             return self.epsilon_end
         import math
@@ -201,10 +175,8 @@ class QLConfig:
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
 
-    # -----------------------------------------------------------------------
     @classmethod
     def load(cls) -> "QLConfig":
-        """Build a config from defaults, then ``config.json``, then the environment."""
         values: Dict[str, Any] = {}
 
         config_file = AGENT_DIR / "config.json"
@@ -213,7 +185,6 @@ class QLConfig:
 
         values.update(cls._from_environment())
 
-        # Reward overrides may arrive as a partial dict; merge onto the defaults.
         overrides = values.pop("event_rewards", None)
         instance = cls(**values)
         if overrides:
@@ -236,9 +207,9 @@ class QLConfig:
 
 
 def _coerce(raw: str, annotation: Any) -> Any:
-    """Turn an environment string into the type the dataclass field declares."""
     text = str(annotation)
-    # Containers first: "Dict[str, float]" also contains "float".
+    # Container types checked first since "Dict[str, float]" also contains
+    # the word "float".
     if "Dict" in text or "dict" in text:
         return json.loads(raw)
     if "bool" in text:

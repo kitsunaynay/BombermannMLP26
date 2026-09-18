@@ -1,10 +1,4 @@
-"""Tests for the Q-learning agent.
-
-The two properties worth the most here are the symmetry round-trip (a broken one
-makes the agent play a mirrored policy, which looks like slow learning rather
-than a bug) and the ``end_of_round`` deduplication (a broken one double-counts
-every surviving episode's last transition).
-"""
+"""Tests for the Q-learning agent."""
 
 import logging
 from types import SimpleNamespace
@@ -120,6 +114,53 @@ def test_escape_if_bomb_is_true_with_room_to_run():
     values = F.compute_all_features(make_game_state(field, (1, 1)))
 
     assert values["escape_if_bomb"] == 1
+
+
+def _pocket_field():
+    """A corridor at y=1 with a one-tile dead-end branch at (3, 2)."""
+    field = np.full((9, 9), -1, dtype=int)
+    field[1:8, 1] = 0
+    field[3, 2] = 0
+    return field
+
+
+def test_in_dead_end_is_true_only_on_the_pocket_tile():
+    field = _pocket_field()
+
+    assert F.compute_all_features(make_game_state(field, (3, 2)))["in_dead_end"] == 1
+    assert F.compute_all_features(make_game_state(field, (3, 1)))["in_dead_end"] == 0
+
+
+def test_opponent_in_dead_end_detects_a_nearby_trapped_opponent():
+    field = _pocket_field()
+
+    trapped = F.compute_all_features(make_game_state(field, (5, 1), others=[(3, 2)]))
+    assert trapped["opponent_in_dead_end"] == 1
+
+    free = F.compute_all_features(make_game_state(field, (5, 1), others=[(4, 1)]))
+    assert free["opponent_in_dead_end"] == 0
+
+
+def test_opponent_in_dead_end_ignores_a_far_away_opponent():
+    field = _pocket_field()
+
+    values = F.compute_all_features(make_game_state(field, (7, 1), others=[(3, 2)]))
+
+    assert values["opponent_in_dead_end"] == 0
+
+
+def test_can_seal_opponent_when_standing_on_its_only_exit():
+    field = _pocket_field()
+
+    on_exit = F.compute_all_features(make_game_state(field, (3, 1), others=[(3, 2)]))
+    assert on_exit["can_seal_opponent"] == 1
+
+    adjacent_to_exit = F.compute_all_features(make_game_state(field, (4, 1), others=[(3, 2)]))
+    assert adjacent_to_exit["can_seal_opponent"] == 1
+
+    far_from_exit = F.compute_all_features(make_game_state(field, (5, 1), others=[(3, 2)]))
+    assert far_from_exit["opponent_in_dead_end"] == 1, "still within range 3 of the trapped opponent"
+    assert far_from_exit["can_seal_opponent"] == 0, "two tiles from the exit, not on or adjacent to it"
 
 
 def test_state_space_size_is_reported():
