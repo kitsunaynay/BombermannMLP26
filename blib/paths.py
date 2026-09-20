@@ -1,10 +1,4 @@
-"""Path display helpers.
-
-``Path.relative_to`` raises ``ValueError`` when the target is not under the base,
-so using it to shorten a path for a log message turns a legitimate
-``--output /tmp/assets`` into a crash *after* the work is already done. These
-helpers only ever affect how a path is printed.
-"""
+"""Path display helpers."""
 
 from __future__ import annotations
 

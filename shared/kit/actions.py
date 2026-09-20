@@ -1,15 +1,6 @@
 """Canonical action vocabulary.
-
-Everything that indexes actions (Q-table columns, policy logits, action masks,
-symmetry permutations) takes the ordering from here, so a Q-table column and a
-policy logit cannot disagree about what index 3 means.
-
 The direction encoding used across the kit is::
-
     0 = none / stay      1 = UP      2 = RIGHT      3 = DOWN      4 = LEFT
-
-which is ``ACTIONS.index(name) + 1`` for the four movement actions, so
-converting between the two is a +/-1.
 """
 
 from __future__ import annotations

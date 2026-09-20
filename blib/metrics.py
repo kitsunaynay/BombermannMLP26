@@ -1,21 +1,14 @@
 """Per-episode statistics and aggregation.
 
-The brief makes performance metrics a graded item -- *"defining good performance
-metrics ... [is] crucial for a good grade"* -- and asks that results be compared
-systematically rather than anecdotally. So aggregates come with bootstrap
-confidence intervals: with 400-step episodes on randomly generated arenas the
-round-to-round variance is large, and a bare mean over ten rounds cannot
-distinguish a real improvement from noise.
+Metrics and why i ddid them:
 
-Metrics tracked, and why each one earns its place:
-
-``score``               the tournament objective; everything else is diagnosis
-``coins`` / ``coin_rate``   Task 1-2 progress
-``crates``              whether the agent uses bombs productively at all
-``kills`` / ``suicides``    Task 3-4 progress; suicides are the classic failure
+``score``                       the tournament objective; everything else is diagnosis
+``coins`` / ``coin_rate``       Task 1-2 progress
+``crates``                      whether the agent uses bombs productively at all
+``kills`` / ``suicides``        Task 3-4 progress; suicides are the classic failure
 ``steps`` / ``survival_rate``   survival, which dominates tournament scoring
-``invalid_rate``        walking into walls: a cheap sanity check on the policy
-``latency_*``           the 0.5 s budget is a hard constraint, not a nicety
+``invalid_rate``                walking into walls: a cheap sanity check on the policy
+``latency_*``                   the 0.5 s budget is a hard constraint, not a nicety
 """
 
 from __future__ import annotations

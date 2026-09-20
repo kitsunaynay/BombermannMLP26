@@ -1,16 +1,3 @@
-"""Inference callbacks for the AttackOnTensor Q-learning agent.
-
-The framework requires exactly two functions here with exactly these
-signatures; ``AgentRunner`` checks the arity at load time and refuses to start
-otherwise (agents.py:209-217).
-
-Acting happens in the *canonical* symmetry frame: features are reduced to a
-representative of their D4 orbit, the Q-table is queried there, and the chosen
-action is mapped back onto the real board with the inverse transform. Getting
-that round-trip wrong makes the agent play a mirrored policy, so
-:func:`tests.test_ql_agent` pins it down.
-"""
-
 from __future__ import annotations
 
 from typing import Optional, Tuple
@@ -24,33 +11,24 @@ from .kit import safety, symmetry
 from .kit.actions import ACTIONS, N_ACTIONS, WAIT
 from .qtable import QTable
 
-#: Re-exported so ``train.py`` can follow the template's import convention.
 state_to_features = F.state_to_features
 
 
 def setup(self):
-    """Called once before the first round; no time limit applies here."""
     self.config = QLConfig.load()
     seed = self.config.rng_seed
     self.rng = np.random.default_rng(seed)
 
     path = self.config.model_path
     if self.train:
-        # Training always starts from whatever is on disk if it is loadable, so
-        # curriculum stages can chain; tools/train_ql.py deletes the file to
-        # force a cold start.
+        # resume from disk or start fresh (tools/train_ql.py deletes for cold start)
         self.q = _load_or_create(self, path)
     elif path.is_file():
         self.q = QTable.load(path, seed=seed)
         _adopt_checkpoint_representation(self)
         self.logger.info(f"Loaded Q-table from {path} ({self.q.n_states} states)")
     else:
-        # Never crash for a missing checkpoint: an untrained agent that plays
-        # badly still completes the graders' submission test, a crashing one
-        # does not.
-        # Deliberately not a crash: an untrained agent that plays badly still
-        # completes the graders' submission test. But log it at error level,
-        # because in evaluation this means every action is a random tie-break.
+        # missing checkpoint must not crash; play with empty table
         self.logger.error(f"No Q-table at {path}; playing from an empty table.")
         self.q = QTable(
             optimistic_init=self.config.optimistic_init,
@@ -69,21 +47,8 @@ def setup(self):
 
 
 def _adopt_checkpoint_representation(self) -> None:
-    """Make the live config match the representation the table was built with.
-
-    The feature variant and the symmetry flag both change what a key *is*. A
-    table trained under ``compact`` produces 9-element keys; querying it with
-    ``full`` produces 12-element keys, which match nothing, so every lookup
-    returns a fresh row and the agent plays untrained without erroring. The
-    tournament sets no environment variables, so the config would otherwise fall
-    back to defaults and hit exactly that. The checkpoint is the authority.
-
-    ``safety_mode`` is adopted for a different reason: it is not part of the key,
-    but it is part of the trained policy. A table trained behind the ``hard``
-    mask never sees a no-escape bomb drop, so it never learns to avoid one.
-    Replayed under ``soft`` the same table went from 38.7 coins and 0% suicide
-    to 1.35 coins and 100% suicide.
-    """
+    # checkpoint's variant/symmetry/safety shape the key; wrong shape misses every lookup
+    # safety_mode override needed: hard table never learned no-escape bomb states
     metadata = getattr(self.q, "metadata", {}) or {}
 
     for field in ("variant", "use_symmetry", "safety_mode", "opponent_bomb_lookahead"):
@@ -112,8 +77,6 @@ def _adopt_checkpoint_representation(self) -> None:
             "Every lookup will miss; retrain or fix the variant."
         )
     elif usable < total:
-        # Resuming under a different variant leaves the old entries behind.
-        # They are unreachable rather than harmful, so this is a warning.
         self.logger.warning(
             f"{total - usable} of {total} Q-table entries have a key shape this "
             f"variant cannot look up (shapes {dict(lengths)}); they are dead "
@@ -122,6 +85,7 @@ def _adopt_checkpoint_representation(self) -> None:
 
 
 def _load_or_create(self, path) -> QTable:
+    # resume training or start fresh
     seed = self.config.rng_seed
     if not path.is_file():
         self.logger.info("Starting from a fresh Q-table.")
@@ -133,13 +97,9 @@ def _load_or_create(self, path) -> QTable:
     try:
         table = QTable.load(path, seed=seed)
         self.logger.info(f"Resuming training from {path} ({table.n_states} states)")
-        # A curriculum stage may change the variant on purpose (compact for
-        # Tasks 1-2, full for 3-4), so warn rather than adopt: when resuming, the
-        # caller's choice wins but the key mismatch is still worth flagging.
+        # curriculum stages may switch variant/symmetry; warn but accept caller's choice
         metadata = table.metadata or {}
 
-        # Both of these decide what a key *means*, so a mismatch makes the
-        # resumed entries unreachable rather than wrong. Warn on either.
         for field, live in (("variant", self.config.variant),
                             ("use_symmetry", self.config.use_symmetry)):
             stored = metadata.get(field)
@@ -149,9 +109,7 @@ def _load_or_create(self, path) -> QTable:
                     f"{live!r}; previously learned states will not be reused."
                 )
 
-        # `double` comes back from the checkpoint, not from config, because two
-        # tables cannot be collapsed into one (or split) meaningfully. Say so,
-        # otherwise a --single-q run silently keeps learning double.
+        # double_q is fixed once set; can't merge/split tables mid-run
         if table.double != self.config.double_q:
             self.logger.warning(
                 f"Checkpoint was trained with double_q={table.double}; keeping that "
@@ -159,7 +117,7 @@ def _load_or_create(self, path) -> QTable:
                 "scratch to change it."
             )
         return table
-    except Exception as error:  # noqa: BLE001 - a stale checkpoint must not abort training
+    except Exception as error:  # noqa: BLE001
         self.logger.warning(f"Could not load {path} ({error}); starting fresh.")
         return QTable(
             optimistic_init=self.config.optimistic_init,
@@ -169,13 +127,7 @@ def _load_or_create(self, path) -> QTable:
 
 
 def cached_view(self, game_state: dict) -> Optional[F.FeatureView]:
-    """Feature view for a state, memoised within the step.
-
-    ``act`` and then ``game_events_occurred`` are both handed the very same
-    state dictionary each step. Extracting features involves a BFS and a
-    survival search, so recomputing them would roughly double the agent's cost
-    for nothing.
-    """
+    # cache feature extraction since act() and game_events_occurred() see same state twice
     if game_state is None:
         return None
 
@@ -183,7 +135,6 @@ def cached_view(self, game_state: dict) -> Optional[F.FeatureView]:
     cached = self._view_cache.get(key)
     if cached is None:
         cached = F.extract(game_state, self.config)
-        # Two entries is enough: the current step and the previous one.
         if len(self._view_cache) > 4:
             self._view_cache.clear()
         self._view_cache[key] = cached
@@ -191,7 +142,6 @@ def cached_view(self, game_state: dict) -> Optional[F.FeatureView]:
 
 
 def compute_mask(self, game_state: dict) -> np.ndarray:
-    """Safety mask over actions, in real-board coordinates."""
     field, position, bomb_available, _, _, _, danger, passable = P.game_state_context(
         game_state
     )
@@ -210,14 +160,11 @@ def compute_mask(self, game_state: dict) -> np.ndarray:
 
 
 def choose_action(self, game_state: dict, epsilon: float) -> Tuple[str, int, F.FeatureView]:
-    """Pick an action and report it alongside the canonical view it came from."""
+    # lookup in canonical frame + transform action back to board frame
     view = cached_view(self, game_state)
     mask = compute_mask(self, game_state)
 
-    # The Q-table lives in the canonical frame, so the mask must be rotated
-    # into it before it can be applied.
     canonical_mask = symmetry.transform_action_array(mask, view.transform)
-
     canonical_action = self.q.epsilon_greedy(view.key, epsilon, canonical_mask)
     action = symmetry.inverse_transform_action(canonical_action, view.transform)
 
@@ -225,7 +172,7 @@ def choose_action(self, game_state: dict, epsilon: float) -> Tuple[str, int, F.F
 
 
 def act(self, game_state: dict) -> str:
-    """Choose an action. Hard 0.5 s budget when not training (settings.py:53)."""
+    # select action with bounded cost and crash recovery
     if game_state is None:
         return ACTIONS[WAIT]
 
@@ -240,14 +187,11 @@ def act(self, game_state: dict) -> str:
         name, _, _ = choose_action(self, game_state, epsilon)
         return name
     except Exception as error:  # noqa: BLE001
-        # A raised exception costs the whole game. Degrade to a safe-ish move
-        # and leave a stack trace in the agent log instead.
         self.logger.exception(f"act() failed ({error}); falling back.")
         return _fallback_action(self, game_state)
 
 
 def _fallback_action(self, game_state: dict) -> str:
-    """Least-bad action when the policy path fails: any non-fatal legal move."""
     try:
         field, position, bomb_available, _, _, _, danger, passable = P.game_state_context(
             game_state

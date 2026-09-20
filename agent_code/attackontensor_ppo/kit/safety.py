@@ -17,18 +17,9 @@ from .pathfind import SURVIVAL_HORIZON, safe_actions, survival_profile
 
 SAFETY_MODES: Tuple[str, ...] = ("none", "soft", "hard")
 
-#: How ``hard`` mode judges a bomb drop.
-#:
-#: ``escape``  any certified escape plan will do (one surviving tile suffices).
-#: ``robust``  the plan must also be *redundant*: out of the bomb's own blast
-#:             within ``ROBUST_EXIT_STEP`` moves, at least
-#:             ``ROBUST_TERMINAL_WIDTH`` distinct end tiles, and breadth of at
-#:             least ``ROBUST_BREADTH`` along the way. A single-tile escape
-#:             route is exactly what a second bomb, or a body in the corridor,
-#:             closes one step later -- Phase 12 measured that closing as the
-#:             cause of 73% of the agent's own deaths. The thresholds follow
-#:             the shield of ``survival_linear_ppo_v4``, whose 1v1 suicide
-#:             rate was lower than ours with an otherwise similar search.
+# how "hard" mode judges a bomb drop: escape = any certified way out, robust =
+# a redundant way out (multiple distinct exits, not just one tile that a
+# second bomb or a body in the corridor can close)
 BOMB_GATES: Tuple[str, ...] = ("escape", "robust")
 ROBUST_EXIT_STEP = 3
 ROBUST_TERMINAL_WIDTH = 2

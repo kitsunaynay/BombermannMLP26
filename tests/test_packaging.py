@@ -1,11 +1,4 @@
-"""Tests for the submission packager and the report asset generator.
-
-The packager's checks encode the failure modes that only surface on the graders'
-machine, where the agent directory stands alone: a repo-root import that no
-longer resolves, an absolute path baked into the source, a missing model file, or
-a callback with the wrong arity. Each check is tested against a deliberately
-broken agent so a regression in the check itself does not pass silently.
-"""
+"""Tests for the submission packager and the report asset generator."""
 
 import sys
 import zipfile

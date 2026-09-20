@@ -1,23 +1,4 @@
-"""Parallel environment fan-out.
-
-The throughput measurement that motivates this file: a solo :class:`BomberEnv`
-runs about 290 rounds/s, but with three ``rule_based_agent`` opponents it drops
-to roughly 8 rounds/s. The bottleneck is the *opponent's* own pathfinding, which
-is pure Python and runs once per opponent per step -- not the framework, and not
-anything we can optimise away without changing the benchmark we are measured
-against.
-
-Since the cost is CPU-bound Python, threads cannot help; processes can. Each
-worker owns one environment and does its own opponent policy work and its own
-observation encoding, so the parent is left with just the batched network
-forward pass. That is the standard ``SubprocVecEnv`` arrangement.
-
-Workers auto-reset on episode end, which keeps every worker producing a
-transition on every call. The terminal observation is preserved in ``info`` so
-the learner can bootstrap correctly instead of using the *reset* observation as
-if it followed the terminal one -- getting that wrong silently corrupts the
-value targets at every episode boundary.
-"""
+"""Parallel environment."""
 
 from __future__ import annotations
 

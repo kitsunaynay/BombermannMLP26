@@ -1,80 +1,51 @@
 # bomberman_rl — Team AttackOnTensor
 
-Setup for a project/competition amongst students to train a winning Reinforcement
-Learning agent for the classic game Bomberman.
+the agents implemented:
 
-This fork adds our two learning agents and the experiment infrastructure around
-them. Design rationale, experiments and results are written up in the project
-report; the commands below reproduce every number in it.
-
-## The two agents
-
-| | Model 1 | Model 2 |
+| | model 1 | Model 2 |
 |---|---|---|
 | Directory | `agent_code/attackontensor_ql/` | `agent_code/attackontensor_ppo/` |
 | Method | Feature-based n-step Double Q-learning | PPO actor-critic (CNN) |
 | State | 9–12 engineered discrete features | `(13, 17, 17)` spatial tensor |
-| Dependencies | numpy | numpy, torch |
 
-Both are self-contained: everything they need at inference lives inside their own
-directory, because the tournament copies exactly one directory into a clean
-checkout of the framework.
 
-## Quick start
+more details in the report.
+
+## Quick stuff
 
 ```bash
-pip install -r requirements.txt
-
-# Watch an agent play
+# watch agent
 python main.py play --agents attackontensor_ql rule_based_agent
 
-# Train the Q-learning agent through the curriculum (Tasks 1-4 of the brief)
+# train ql
 python tools/train_ql.py --stage 1
 
-# Train PPO with parallel rollout collection
+# train ppo
 python tools/train_ppo.py --stage 1 --workers 8 --total-steps 500000
 
-# Compare against every provided baseline over 30 seeds
+# comparison on 30 seeds, vs baseline agents
 python tools/benchmark.py --agents attackontensor_ql rule_based_agent \
     coin_collector_agent random_agent --seeds 30
 
-# Confirm we decide within the 0.5s tournament budget
+# 0.5s tournament requirement
 python tools/latency_check.py --agent attackontensor_ppo
 
-# Regenerate all report figures and tables
+# figs and table update
 python tools/make_report_assets.py
 ```
 
-## Repository layout
 
-```
-shared/kit/       game utilities — the ONLY editable copy
-agent_code/       the two agents (each vendors shared/kit into kit/)
-blib/             training + evaluation infrastructure (never submitted)
-tools/            command-line entry points
-tests/            pytest suite
-```
+### Ai aknowledgement:
+AI was used in the following way:
+1. Code was written on our own, restructured, commented, and optimized by AI for readability and clean repository that all members can understand each others code more easily.
+2. AI recommended training harness was implemented by human and optimized by AI for high quality code and optimal training. Double checked by human.
+3. Base repository structure was created with AI to start clean and organized. Made with detailed human instructions and double checks. No agent implementations yet.
+4. Support with a training feedback loop to automate testing and promotion. Referred to as "curriculum" in the files. Curriculum given by human.
 
-`shared/kit/` is vendored into each agent by `tools/sync_kit.py`. **Edit
-`shared/kit/`, never `agent_code/*/kit/`**, then re-run the tool;
-`tools/sync_kit.py --check` runs as a unit test and fails if a copy has drifted.
 
-## Tests
+## AI changes:
 
-```bash
-python -m pytest tests/ -q
-```
-
-Notable coverage: blast geometry cross-checked against the framework's own
-`items.Bomb`, GAE checked against an independent reference implementation, and
-`tests/test_fast_env_parity.py`, which drives the fast training environment and a
-stock `BombeRLeWorld` through identical actions and asserts they evolve
-identically step for step.
-
-## Changes to framework files
-
-Four upstream bugs are fixed for development convenience. All of these files are
-replaced by the graders' originals at tournament time, so nothing depends on them:
+Four upstream bugs are fixed for development convenience:
 
 - `fallbacks.py` — `LOADED_PYGAME` was `True` even when the import failed, which
   made `main.py`'s guard unreachable.

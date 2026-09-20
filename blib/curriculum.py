@@ -1,17 +1,4 @@
-"""Tasks 1-4 from the brief, expressed as data.
-
-Section 4 of the project brief defines four nested subgoals and says the tasks
-"are subsets of each other, so an agent that can handle task 4 should also be
-able to solve 1, 2 and 3". Encoding them as data rather than as prose in a
-README means the training scripts, the benchmark harness and the report all read
-the same definition, and the promotion gates become a measurement rather than a
-judgement call.
-
-Each stage carries a ``gate``: the condition the agent must meet before moving
-on. The gates double as the plan's failure detectors -- a stage that stops
-improving without passing its gate is the signal to change the design, which is
-exactly the systematic loop the brief grades on.
-"""
+"""Curriculum stages and promotion criteria."""
 
 from __future__ import annotations
 

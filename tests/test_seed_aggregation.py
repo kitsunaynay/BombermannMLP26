@@ -1,11 +1,4 @@
-"""Tests for the multi-seed ablation aggregator.
-
-The whole point of `tools/aggregate_seeds.py` is to decide which Phase 5
-differences were real, so a wrong p-value here does not crash anything -- it
-silently promotes noise into the report or retires a genuine effect. The first
-implementation of the continued fraction returned p = -0.15 for t = 1, dof = 30,
-which is why these pin it against textbook critical values.
-"""
+"""Tests for the multi-seed ablation aggregator."""
 
 import sys
 from pathlib import Path

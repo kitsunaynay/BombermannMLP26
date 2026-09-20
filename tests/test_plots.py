@@ -1,11 +1,4 @@
-"""Report asset generation.
-
-These run headless (matplotlib Agg) and assert files are produced with sane
-content rather than inspecting pixels. The point is that
-``tools/make_report_assets.py`` never fails on a partially-populated results
-directory -- during a project you regenerate assets constantly, often while a
-training run is midway through writing its CSV.
-"""
+"""Report asset generation."""
 
 import csv
 import json

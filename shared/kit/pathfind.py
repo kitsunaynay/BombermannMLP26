@@ -338,13 +338,9 @@ def opponent_reachability(
     """Over-approximate which tiles any opponent could occupy at each future step.
 
     Floor-connectivity only: an opponent may stay or step to an orthogonally
-    free tile, ignoring bombs and other agents as blockers. That is a
-    deliberate over-approximation (an opponent's own future bombs and
-    movements are exactly what this is trying to stay agnostic to), not a
-    certified opponent plan -- it feeds :func:`survival_profile`'s
-    ``contested`` signal, which the policy learns to weigh, rather than a
-    hard mask. See ``docs/DEVLOG.md`` Phase 12 for why widening the *mask*
-    this way was measured dead.
+    free tile, ignoring bombs and other agents as blockers. That's a
+    deliberate over-approximation, since it feeds the ``contested`` signal
+    the policy learns to weigh, rather than a hard mask.
 
     Because "stay in place" is always an option, the reachable set only grows
     with ``t`` and typically floods most of an open board within a few steps.

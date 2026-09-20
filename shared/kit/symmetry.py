@@ -1,18 +1,4 @@
-"""Dihedral (D4) symmetries of the arena.
-
-The Bomberman board is symmetric under the eight-element dihedral group: four
-rotations and four reflections. Two uses:
-
-* **Data augmentation** for PPO: one rollout step becomes up to eight.
-* **State canonicalisation** for the Q-table: mapping each state to a fixed
-  representative of its orbit shrinks the table by up to 8x and shares
-  experience between the four corners.
-
-Grids are indexed ``[x, y]`` to match ``game_state['field']``; stacked tensors
-are ``(C, X, Y)``. The action permutation for each transform is *derived* at
-import time by probing the transform with a one-hot marker rather than being
-written out by hand, so it cannot disagree with the grid operation.
-"""
+"""Dihedral (D4) symmetries of the arena."""
 
 from __future__ import annotations
 
@@ -28,7 +14,6 @@ from .actions import (
     dir_to_action,
 )
 
-#: Names of the eight group elements, in a fixed order.
 TRANSFORMS: Tuple[str, ...] = (
     "identity",
     "rot90",
@@ -90,11 +75,9 @@ def _derive_action_permutation(transform: str) -> Tuple[int, ...]:
         new_delta = (int(nx) - 1, int(ny) - 1)
         permutation[action] = dir_to_action(DELTA_TO_DIR[new_delta])
 
-    # WAIT and BOMB are rotation-invariant and keep their indices.
     return tuple(permutation)
 
 
-#: ``ACTION_PERMUTATION[name][a]`` is the index action ``a`` becomes under ``name``.
 ACTION_PERMUTATION: Dict[str, Tuple[int, ...]] = {
     name: _derive_action_permutation(name) for name in TRANSFORMS
 }

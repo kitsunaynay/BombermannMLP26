@@ -3,32 +3,7 @@
 # Vendored from shared/kit/geometry.py by tools/sync_kit.py.
 # Edit the original, then re-run:  python tools/sync_kit.py
 # --------------------------------------------------------------------------
-"""Blast geometry and danger accounting.
-
-When a tile kills you follows from the step resolution order
-(environment.py:158)::
-
-    poll_and_run_agents()   # every agent moves
-    collect_coins()
-    update_explosions()     # explosions age; timer 1 -> harmless smoke
-    update_bombs()          # bombs with timer <= 0 detonate NOW
-    evaluate_explosions()   # agents standing in a live blast die
-
-The agent moves first and the world resolves after, so a bomb reported as
-``t = 0`` in ``game_state['bombs']`` detonates at the end of the step being
-decided now.
-
-This module encodes that as a single ``danger`` array with the semantics:
-
-    ``danger[x, y] == k``  ->  the tile is lethal at the end of move ``k``
-                              (``k = 0`` means "lethal at the end of this step")
-    ``danger[x, y] == SAFE`` -> no known bomb or explosion threatens the tile
-
-Because an explosion lingers for one extra dangerous step
-(``s.EXPLOSION_TIMER == 2``), a tile with ``danger == k`` is actually deadly for
-occupancy at the end of moves ``k`` and ``k + 1``; use :func:`lethal_at` rather
-than comparing against ``danger`` by hand.
-"""
+"""Blast geometry and danger accounting."""
 
 from __future__ import annotations
 

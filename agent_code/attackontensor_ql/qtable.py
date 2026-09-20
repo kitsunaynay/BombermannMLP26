@@ -1,18 +1,3 @@
-"""Sparse Q-table with optional Double Q-learning.
-
-Storage is a plain ``dict`` keyed by the feature tuple, holding a length-6
-float array of action values. Sparse, not dense: the full feature variant spans
-~1.8M states and only 10^4..10^5 are ever visited.
-
-Not a ``defaultdict``, because one with a lambda factory cannot be pickled and
-this table has to survive a checkpoint round-trip.
-
-Double Q-learning (van Hasselt, 2010) is available: plain Q-learning's ``max``
-biases values upward, and an overestimated ``BOMB`` value means suicide here.
-Two tables are kept; each update picks one at random, takes the greedy action
-from it and evaluates that action with the other.
-"""
-
 from __future__ import annotations
 
 import os
@@ -27,13 +12,12 @@ from .kit.actions import N_ACTIONS
 
 State = Tuple[int, ...]
 
-#: Bumped whenever the on-disk layout changes, so stale checkpoints fail loudly.
-FORMAT_VERSION = 1
+FORMAT_VERSION = 1  # bump when the on-disk layout changes, so old checkpoints fail loudly
 
 
 class QTable:
-    """Action-value store for discrete states."""
-
+    # sparse dict keyed by feature tuple; not dense array or defaultdict (not picklable)
+    # optional double q-learning (each table picks action, other scores it)
     def __init__(
         self,
         n_actions: int = N_ACTIONS,
@@ -45,10 +29,7 @@ class QTable:
         self.n_actions = n_actions
         self.optimistic_init = float(optimistic_init)
         self.double = bool(double)
-        # Which representation the keys were built from: feature variant, and
-        # whether symmetry canonicalisation was on. Both change what a key means,
-        # so a table loaded under a different one misses every lookup and plays
-        # untrained. Stored with the table so they cannot drift apart.
+        # store variant/symmetry so key format never drifts from table
         self.metadata: Dict[str, object] = dict(metadata or {})
         self._tables: Tuple[Dict[State, np.ndarray], ...] = tuple(
             {} for _ in range(2 if double else 1)
@@ -56,37 +37,30 @@ class QTable:
         self._visits: Dict[State, np.ndarray] = {}
         self._rng = np.random.default_rng(seed)
 
-    # -- access -------------------------------------------------------------
     def _row(self, table: Dict[State, np.ndarray], state: State) -> np.ndarray:
+        # lazy allocation with optimistic init
         row = table.get(state)
         if row is None:
-            # Optimistic init explores untried actions without relying purely
-            # on epsilon-greedy noise.
             row = np.full(self.n_actions, self.optimistic_init, dtype=np.float64)
             table[state] = row
         return row
 
     def q(self, state: State) -> np.ndarray:
-        """Action values used for acting: the mean over tables when double."""
+        # average both tables in double q-learning
         if not self.double:
             return self._row(self._tables[0], state)
         return 0.5 * (self._row(self._tables[0], state) + self._row(self._tables[1], state))
 
     def visits(self, state: State) -> np.ndarray:
+        # lazy allocation for visit counts
         counts = self._visits.get(state)
         if counts is None:
             counts = np.zeros(self.n_actions, dtype=np.int64)
             self._visits[state] = counts
         return counts
 
-    # -- action selection ---------------------------------------------------
     def greedy(self, state: State, mask: Optional[np.ndarray] = None) -> int:
-        """Highest-valued permitted action, ties broken uniformly at random.
-
-        Random tie-breaking matters more than it looks: a freshly initialised
-        table is all zeros, and a deterministic ``argmax`` would make the agent
-        walk into the same wall every step of its first episodes.
-        """
+        # ties broken randomly to avoid deterministic loops in fresh tables
         values = self.q(state)
         if mask is not None and mask.any():
             values = np.where(mask, values, -np.inf)
@@ -105,7 +79,6 @@ class QTable:
             return int(self._rng.integers(self.n_actions))
         return self.greedy(state, mask)
 
-    # -- learning -----------------------------------------------------------
     def learn(
         self,
         state: State,
@@ -116,14 +89,10 @@ class QTable:
         alpha: float,
         next_mask: Optional[np.ndarray] = None,
     ) -> float:
-        """Apply one (possibly n-step) Q-learning update. Returns the TD error.
-
-        ``partial_return`` is the accumulated discounted reward over the backup
-        window and ``discount`` is ``gamma ** n``; pass ``0.0`` to make the
-        update terminal, which is what ``end_of_round`` does.
-        """
+        # n-step td update; discount=0 for terminal (end_of_round)
         self.visits(state)[action] += 1
 
+        # pick random table for update
         if self.double:
             index = int(self._rng.integers(2))
         else:
@@ -131,11 +100,11 @@ class QTable:
         table = self._tables[index]
         row = self._row(table, state)
 
+        # bootstrap from next state
         bootstrap = 0.0
         if next_state is not None and discount != 0.0:
             if self.double:
-                # Select with this table, evaluate with the other: the whole
-                # point of Double Q-learning.
+                # pick action with this table; score with other table
                 selector = self._row(table, next_state)
                 evaluator = self._row(self._tables[1 - index], next_state)
             else:
@@ -150,11 +119,8 @@ class QTable:
         row[action] += alpha * td_error
         return float(td_error)
 
-    # -- diagnostics --------------------------------------------------------
     @property
     def n_states(self) -> int:
-        """Distinct states seen. Linear growth in steps means the features are
-        too fine-grained to generalise; one of the failure detectors."""
         seen = set()
         for table in self._tables:
             seen.update(table.keys())
@@ -162,7 +128,6 @@ class QTable:
 
     @property
     def max_abs_q(self) -> float:
-        """Largest magnitude value; a divergence alarm."""
         best = 0.0
         for table in self._tables:
             for row in table.values():
@@ -174,21 +139,13 @@ class QTable:
         return all(np.isfinite(row).all() for table in self._tables for row in table.values())
 
     def coverage(self) -> float:
-        """Fraction of (state, action) pairs tried at least once."""
         if not self._visits:
             return 0.0
         total = sum(int((counts > 0).sum()) for counts in self._visits.values())
         return total / (len(self._visits) * self.n_actions)
 
-    # -- persistence --------------------------------------------------------
     def save(self, path: Path | str) -> None:
-        """Atomically write the table.
-
-        Training gets interrupted constantly (Ctrl-C, curriculum switches, node
-        preemption). Writing to a temporary file in the same directory and then
-        ``os.replace``-ing keeps a half-written pickle from destroying hours of
-        work.
-        """
+        # atomic save via temp file and rename
         path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -213,6 +170,7 @@ class QTable:
 
     @classmethod
     def load(cls, path: Path | str, seed: Optional[int] = None) -> "QTable":
+        # load with format version check
         with open(path, "rb") as stream:
             payload = pickle.load(stream)
 
@@ -235,20 +193,14 @@ class QTable:
         return table
 
     def key_length(self) -> Optional[int]:
-        """Most common feature-tuple length, or ``None`` for an empty table."""
         lengths = self.key_lengths()
         if not lengths:
             return None
         return max(lengths, key=lambda length: lengths[length])
 
     def key_lengths(self) -> Dict[int, int]:
-        """How many stored keys have each length.
-
-        A table can hold more than one key shape: resuming under a different
-        feature variant leaves the old entries alongside the new ones. They are
-        unreachable rather than harmful, so count all shapes instead of sampling
-        one key, which would report a mismatch when most lookups are fine.
-        """
+        # table may hold multiple key shapes if resumed under different variant
+        # count all shapes since old-shape entries are harmless but unreachable
         counts: Dict[int, int] = {}
         seen = set()
         for table in self._tables:
@@ -260,11 +212,7 @@ class QTable:
         return counts
 
     def prune_foreign_keys(self, expected_length: int) -> int:
-        """Drop entries whose keys can never be looked up. Returns the count.
-
-        Only worth doing on an artifact about to be shipped: unreachable rows
-        cost lookup nothing but inflate the file the tournament has to load.
-        """
+        # drop wrong-length keys; only needed at shipping to reduce file size
         removed = 0
         for table in self._tables:
             for key in [k for k in table if len(k) != expected_length]:

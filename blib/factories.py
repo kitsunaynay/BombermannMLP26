@@ -1,14 +1,4 @@
-"""Picklable factories for worker processes.
-
-``SubprocVecEnv`` uses the ``spawn`` start method, so anything handed to a
-worker must pickle. Closures and lambdas do not; module-level functions pickle
-*by reference*, which is why these live in an importable module rather than
-inside the training script. A child re-imports this module and calls the factory
-locally, so the object itself never crosses the pipe.
-
-Configuration reaches the children through the environment, which ``spawn``
-inherits, so ``PPOConfig.load()`` in a worker sees exactly what the parent saw.
-"""
+"""Picklable factories for worker processes."""
 
 from __future__ import annotations
 

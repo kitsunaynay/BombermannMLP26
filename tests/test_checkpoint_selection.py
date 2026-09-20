@@ -1,11 +1,4 @@
-"""Best-checkpoint selection.
-
-A constant learning rate makes tabular Q-values track a moving target rather
-than converge, so the table a run writes last is not reliably the best table the
-run produced. Measured on Task 2: the final table scored 16.3 coins where a
-table from 2 000 rounds earlier scored 24.9, on the same seeds. Trusting the
-last write was the defect; these tests pin the fix.
-"""
+"""Best-checkpoint selection."""
 
 import json
 import sys
@@ -226,14 +219,7 @@ def test_selection_prefers_the_more_trained_table_on_a_tie(
 
 
 def test_training_flags_reach_the_agents_config(tmp_path):
-    """Every knob the CLI exposes must actually arrive in the subprocess.
-
-    `alpha_decay` was implemented at train.py:184 and documented in Phase 0 as
-    the fix for constant-alpha Q-values tracking a moving target -- but it had
-    no CLI flag and `stage_environment` never exported it, so every run for two
-    phases silently trained with constant alpha. A flag that is plumbed but not
-    exported fails exactly this way: silently, with plausible results.
-    """
+    """Every knob the CLI exposes must actually arrive in the subprocess."""
     args = train_ql.build_parser().parse_args(
         ["--stage", "2", "--alpha", "0.2", "--alpha-decay", "0.01",
          "--alpha-min", "0.005", "--seed", "3"]

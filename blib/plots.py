@@ -1,14 +1,4 @@
-"""Figures and tables for the report.
-
-The brief makes *Experiments and Results* the most heavily weighted section and
-asks for "training progress diagrams, performance comparisons between your
-agents and the predefined ones". Everything here reads the CSV and JSON that
-training and benchmarking already wrote, so every figure regenerates from files
-in the repository -- no notebook state, no manual steps.
-
-Matplotlib only, with the default style and no seaborn, so the figures render
-identically on a machine that only has the packages listed in requirements.txt.
-"""
+"""Figures and tables for the report."""
 
 from __future__ import annotations
 

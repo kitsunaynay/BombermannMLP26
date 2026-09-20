@@ -1,23 +1,4 @@
-#!/usr/bin/env python3
 """Package one agent directory as the tournament submission zip.
-
-The brief describes what the graders do with the upload:
-
-1. unzip it;
-2. install anything in ``requirements.txt``;
-3. **find the first directory containing a `callbacks.py`**;
-4. copy that directory into their own `agent_code`;
-5. run one game with ``self.train = False`` against three ``random_agent``s.
-
-So the archive has to contain exactly one agent directory, that directory has to
-be self-contained, and it must carry its trained parameters. This script builds
-that archive, leaves out caches and logs, and verifies the result before writing
-it -- catching the failure modes that only show up on the graders' machine:
-a missing model file, a stray import from the repository root, or an absolute
-path baked into the code.
-
-Usage::
-
     python tools/package_submission.py --agent attackontensor_ql
     python tools/package_submission.py --agent attackontensor_ppo --output submit.zip
 """

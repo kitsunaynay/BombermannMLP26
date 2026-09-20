@@ -1,15 +1,4 @@
-"""Fidelity of the fast training environment.
-
-``blib.fast_env`` exists so PPO can collect experience far faster than
-``main.py`` allows. That is only legitimate if the fast world is the *same game*
--- otherwise every number measured during training describes a game nobody is
-grading.
-
-These tests drive a stock ``BombeRLeWorld`` and a ``FastWorld`` through an
-identical, deterministic action sequence with the same seed, and assert the two
-stay in lockstep: same arena, same positions, same scores, same events, same
-deaths, step for step.
-"""
+"""Fidelity of the fast training environment."""
 
 import numpy as np
 import pytest

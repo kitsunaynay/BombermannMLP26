@@ -37,7 +37,6 @@ def world_controller(world, n_rounds, *,
     gui_timekeeper = Timekeeper(update_interval)
 
     def render(wait_until_due):
-        # If every step should be displayed, wait until it is due to be shown
         if wait_until_due:
             gui_timekeeper.wait()
 

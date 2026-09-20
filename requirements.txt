@@ -1,25 +1,8 @@
-# AttackOnTensor -- Bomberman RL
-#
-# The tournament Dockerfile already provides numpy, scipy, scikit-learn, torch,
-# pandas, matplotlib, tqdm and pygame. This file exists because the brief says
-# libraries beyond the default image must be declared, and because it pins what
-# a fresh checkout needs to reproduce the results.
-#
-# The submitted agents need only numpy (Q-learning) and torch (PPO). Everything
-# below the first block is development-only and is never imported by
-# agent_code/*/callbacks.py.
-
-# --- required at inference (tournament) -----------------------------------
 numpy>=1.24
-torch>=2.0            # attackontensor_ppo only; the Q-learning agent has no torch dependency
-
-# --- required for training, benchmarking and report generation -------------
-matplotlib>=3.6       # figures for the report
-tqdm>=4.64            # progress bars in main.py
-
-# --- development ------------------------------------------------------------
+torch>=2.0
+matplotlib>=3.6
+tqdm>=4.64
 pytest>=7.0
 
-# --- optional ---------------------------------------------------------------
-# pygame>=2.1         # GUI only; the framework runs headless without it
-# wandb>=0.15         # optional experiment tracking, enabled with --wandb
+# pygame>=2.1
+# wandb>=0.15

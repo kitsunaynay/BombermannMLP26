@@ -1,33 +1,3 @@
-"""PPO: rollout storage, generalised advantage estimation, and the update.
-
-Proximal Policy Optimization (Schulman et al., 2017) maximises a clipped
-surrogate objective
-
-.. math::
-   L^{CLIP} = \\mathbb{E}_t\\Big[\\min\\big(\\rho_t \\hat A_t,\\;
-              \\mathrm{clip}(\\rho_t, 1-\\epsilon, 1+\\epsilon)\\hat A_t\\big)\\Big],
-   \\qquad \\rho_t = \\frac{\\pi_\\theta(a_t|s_t)}{\\pi_{\\theta_{old}}(a_t|s_t)}
-
-The clip allows several gradient epochs per batch: once the new policy moves far
-enough that :math:`\\rho_t` leaves the trust region, the objective flattens.
-Advantages come from GAE (Schulman et al., 2015),
-
-.. math::
-   \\hat A_t = \\sum_{l \\ge 0} (\\gamma\\lambda)^l \\delta_{t+l},
-   \\qquad \\delta_t = r_t + \\gamma V(s_{t+1})(1 - d_t) - V(s_t)
-
-which trades bias against variance through :math:`\\lambda`.
-
-The total loss adds a value term and an entropy bonus:
-
-.. math::
-   L = -L^{CLIP} + c_v L^{VF} - c_e \\mathcal{H}[\\pi]
-
-Entropy collapse is the main failure mode here: an agent that becomes certain
-too early stops discovering that bombs kill crates. Entropy is logged every
-update as one of the failure detectors.
-"""
-
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -48,13 +18,7 @@ def compute_gae(
     gamma: float,
     lam: float,
 ) -> Tuple[np.ndarray, np.ndarray]:
-    """Generalised advantage estimation over one contiguous rollout.
-
-    ``dones[t]`` marks the transition *out of* step ``t`` as terminal, which cuts
-    both the bootstrap and the recursion so episodes never bleed into each other.
-
-    Returns ``(advantages, returns)`` with ``returns = advantages + values``.
-    """
+    # backward gae pass; dones stop bootstrap and advantage accumulation
     steps = len(rewards)
     advantages = np.zeros(steps, dtype=np.float64)
 
@@ -71,13 +35,7 @@ def compute_gae(
 
 
 class RolloutBuffer:
-    """Fixed-capacity storage for on-policy experience.
-
-    Pre-allocated numpy arrays rather than a list of tuples: rollouts are
-    collected step by step but consumed as one big batch, and repeatedly
-    re-stacking a Python list of observations dominates the update cost.
-    """
-
+    # fixed-size replay buffer for one rollout epoch
     def __init__(self, capacity: int, observation_shape: Tuple[int, ...], n_actions: int = N_ACTIONS):
         self.capacity = int(capacity)
         self.observation_shape = tuple(observation_shape)
@@ -143,14 +101,6 @@ class RolloutBuffer:
 
 @dataclass
 class UpdateMetrics:
-    """Diagnostics from one PPO update, all of them worth plotting.
-
-    ``approx_kl`` and ``clip_fraction`` say whether the trust region is doing
-    anything; ``entropy`` catches premature determinism; ``explained_variance``
-    says whether the critic is learning at all (values near or below zero mean
-    it predicts no better than the mean return).
-    """
-
     policy_loss: float = 0.0
     value_loss: float = 0.0
     entropy: float = 0.0
@@ -176,7 +126,6 @@ class UpdateMetrics:
 
 
 def explained_variance(predictions: np.ndarray, targets: np.ndarray) -> float:
-    """1 - Var(target - prediction) / Var(target); 0 means "no better than the mean"."""
     variance = float(np.var(targets))
     if variance < 1e-12:
         return 0.0
@@ -184,8 +133,6 @@ def explained_variance(predictions: np.ndarray, targets: np.ndarray) -> float:
 
 
 class PPOLearner:
-    """Owns the network, the optimiser, and the update step."""
-
     def __init__(self, network: nn.Module, config, device: str = "cpu"):
         self.network = network
         self.config = config
@@ -195,9 +142,9 @@ class PPOLearner:
         self.optimizer = torch.optim.Adam(
             self.network.parameters(), lr=config.learning_rate, eps=1e-5
         )
-        self.progress = 0.0  # 0 -> 1 over training, drives the anneal schedules
+        # 0->1 progress for annealing schedules
+        self.progress = 0.0
 
-    # -- schedules ----------------------------------------------------------
     def _annealed(self, start: float, final: float) -> float:
         if not self.config.anneal_schedules:
             return start
@@ -213,7 +160,6 @@ class PPOLearner:
             self.config.entropy_coefficient, self.config.entropy_coefficient_final
         )
 
-    # -- update -------------------------------------------------------------
     def update(
         self,
         buffer: RolloutBuffer,
@@ -225,9 +171,11 @@ class PPOLearner:
         if count == 0:
             return UpdateMetrics()
 
+        # update learning rate
         for group in self.optimizer.param_groups:
             group["lr"] = self.learning_rate
 
+        # load rollout data
         observations = torch.as_tensor(buffer.observations[:count], device=self.device)
         actions = torch.as_tensor(buffer.actions[:count], device=self.device)
         old_log_probs = torch.as_tensor(buffer.log_probs[:count], device=self.device)
@@ -242,25 +190,29 @@ class PPOLearner:
         indices = np.arange(count)
         n_updates = 0
 
+        # multiple epochs over minibatches
         for _ in range(config.update_epochs):
             np.random.shuffle(indices)
 
             for start in range(0, count, batch_size):
                 batch = indices[start : start + batch_size]
                 if len(batch) < 2:
-                    continue  # a 1-sample batch makes advantage normalisation undefined
+                    continue
                 batch_index = torch.as_tensor(batch, device=self.device)
 
+                # normalize advantages per batch
                 batch_advantages = advantage_tensor[batch_index]
                 if config.normalise_advantages:
                     batch_advantages = (batch_advantages - batch_advantages.mean()) / (
                         batch_advantages.std() + 1e-8
                     )
 
+                # forward pass
                 log_probs, entropy, values = self.network.evaluate(
                     observations[batch_index], actions[batch_index], masks[batch_index]
                 )
 
+                # ppo clipped policy loss
                 log_ratio = log_probs - old_log_probs[batch_index]
                 ratio = log_ratio.exp()
 
@@ -271,9 +223,8 @@ class PPOLearner:
                 )
                 policy_loss = -torch.min(surrogate_1, surrogate_2).mean()
 
+                # clipped or unclipped value loss
                 if config.clip_value_loss:
-                    # Clipping the value update too keeps the critic from
-                    # lurching on a single batch of high-variance returns.
                     clipped = old_values[batch_index] + torch.clamp(
                         values - old_values[batch_index],
                         -config.clip_epsilon,
@@ -293,6 +244,7 @@ class PPOLearner:
                     - entropy_coefficient * entropy_mean
                 )
 
+                # backward pass
                 self.optimizer.zero_grad(set_to_none=True)
                 loss.backward()
                 grad_norm = torch.nn.utils.clip_grad_norm_(
@@ -300,8 +252,8 @@ class PPOLearner:
                 )
                 self.optimizer.step()
 
+                # collect metrics
                 with torch.no_grad():
-                    # Schulman's low-variance KL estimator; always non-negative.
                     approx_kl = ((ratio - 1.0) - log_ratio).mean().item()
                     clip_fraction = (
                         ((ratio - 1.0).abs() > config.clip_epsilon).float().mean().item()
@@ -315,15 +267,15 @@ class PPOLearner:
                 metrics.grad_norm += float(grad_norm)
                 n_updates += 1
 
+                # early stopping on kl divergence
                 if config.target_kl > 0 and approx_kl > config.target_kl:
-                    # The policy has moved too far for this batch to stay
-                    # on-policy enough to trust; stop rather than keep pushing.
                     metrics.early_stopped = True
                     break
 
             if metrics.early_stopped:
                 break
 
+        # average metrics
         if n_updates:
             metrics.policy_loss /= n_updates
             metrics.value_loss /= n_updates
@@ -333,6 +285,7 @@ class PPOLearner:
             metrics.grad_norm /= n_updates
         metrics.n_updates = n_updates
 
+        # post-update value function quality
         with torch.no_grad():
             predictions = self.network.evaluate(observations, actions, masks)[2]
         metrics.explained_variance = explained_variance(
@@ -341,14 +294,8 @@ class PPOLearner:
 
         return metrics
 
-    # -- persistence --------------------------------------------------------
     def save(self, path, extra: Optional[dict] = None) -> None:
-        """Atomically write a checkpoint.
-
-        Same reasoning as the Q-table: training gets interrupted, and a
-        half-written ``.pt`` would be indistinguishable from a good one until
-        the tournament tried to load it.
-        """
+        # atomic save via temp file and rename
         import os
         import tempfile
         from pathlib import Path

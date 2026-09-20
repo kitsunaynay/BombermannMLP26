@@ -1,14 +1,4 @@
-"""Experiment tracking sinks.
-
-Local CSV and JSON are the source of truth and are always written. Weights &
-Biases is optional, behind a guarded import and a flag, because a training run
-must not die because a laptop is offline or a package is missing -- and because
-every figure in the report has to be reproducible from files in the repository,
-not from a cloud dashboard the graders cannot open.
-
-A tracking failure never propagates. Losing a metric row is an annoyance;
-losing a training run to it is not acceptable.
-"""
+"""Experiment tracking sinks."""
 
 from __future__ import annotations
 

@@ -1,14 +1,4 @@
-#!/usr/bin/env python3
 """Regenerate every figure and table for the report.
-
-Walks ``results/`` for training metric CSVs and benchmark JSONs and writes
-figures, a Markdown table file and a LaTeX table file into ``report_assets/``.
-Everything is derived from committed files, so a reader can reproduce every
-number in the report by re-running this script -- which is the replication
-standard the brief asks for.
-
-Usage::
-
     python tools/make_report_assets.py
     python tools/make_report_assets.py --results-dir results --output report_assets
 """

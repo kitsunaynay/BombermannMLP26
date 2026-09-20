@@ -1,24 +1,3 @@
-"""Training callbacks: single-process PPO inside the framework.
-
-The three in-framework callbacks, driven by ``python main.py play --train 1``.
-Correct but slow, since the framework's game loop is sequential Python. Serious
-runs use ``tools/train_ppo.py``, which drives many copies of
-``blib/fast_env.py`` in parallel and writes the same checkpoint format. The
-submitted agent stays single-process either way.
-
-The final transition is delivered twice, same as the Q-learning agent. On the
-last step of a round ``do_step`` calls ``send_game_events`` and then
-``end_round`` (environment.py:174, 177), so a surviving agent gets that
-transition once via ``game_events_occurred`` and again via ``end_of_round``,
-with the same state and action and ``SURVIVED_ROUND`` appended to the same list
-in between. An agent that died gets it only once, through ``end_of_round``,
-because ``send_game_events`` skips the dead (environment.py:469). Appending in
-both places would double-count it, so we track the last step processed.
-
-Nothing here imports from the repository root beyond the framework's own
-modules: the graders copy this directory alone into their tree.
-"""
-
 from __future__ import annotations
 
 import atexit
@@ -39,7 +18,6 @@ from .config import AGENT_DIR
 from .kit.actions import ACTION_INDEX, WAIT
 from .ppo import PPOLearner, RolloutBuffer
 
-#: Entropy below this (nats) means the policy has gone deterministic too early.
 ENTROPY_COLLAPSE_THRESHOLD = 0.2
 
 METRIC_FIELDS = (
@@ -61,15 +39,12 @@ METRIC_FIELDS = (
     "explained_variance",
     "grad_norm",
     "learning_rate",
-    # Gradient steps taken during this round. An update only runs when the
-    # rollout buffer fills, which is rarer than once per round, so plots must
-    # filter on this rather than treating every row as an update sample.
     "updates",
 )
 
 
 def setup_training(self):
-    """Called once after ``setup``; ``self`` is shared with callbacks.py."""
+    # setup PPO
     self.network.train()
 
     self.buffer = RolloutBuffer(
@@ -78,7 +53,7 @@ def setup_training(self):
     )
     self.learner = PPOLearner(self.network, self.config, device=self.config.device)
 
-    # Dedup bookkeeping for the double delivery described in the module docstring.
+    # step tracking
     self._last_processed_step: Optional[int] = None
     self._last_events_len = 0
 
@@ -86,6 +61,7 @@ def setup_training(self):
     self.round_index = 0
     _reset_round_stats(self)
 
+    # metrics
     self._metrics_path = _resolve_metrics_path(self.config.metrics_file)
     if self._metrics_path is not None:
         self._metrics_path.parent.mkdir(parents=True, exist_ok=True)
@@ -93,8 +69,7 @@ def setup_training(self):
             with self._metrics_path.open("w", newline="") as stream:
                 csv.DictWriter(stream, fieldnames=METRIC_FIELDS).writeheader()
 
-    # The framework has no "training finished" hook, so without this a run whose
-    # round count is not a multiple of checkpoint_every discards its last work.
+    # save on exit
     atexit.register(_save_on_exit, self)
 
     self.logger.info(
@@ -105,6 +80,7 @@ def setup_training(self):
 
 
 def _save_on_exit(self) -> None:
+    # final save
     try:
         self.learner.save(self.config.model_path)
         self.logger.info(f"Final save -> {self.config.model_path}")
@@ -113,6 +89,7 @@ def _save_on_exit(self) -> None:
 
 
 def _resolve_metrics_path(raw: str) -> Optional[Path]:
+    # normalize path
     if not raw:
         return None
     path = Path(raw)
@@ -120,12 +97,14 @@ def _resolve_metrics_path(raw: str) -> Optional[Path]:
 
 
 def _reset_round_stats(self) -> None:
+    # reset stats
     self._stats = {k: 0 for k in ("steps", "coins", "crates", "kills", "suicides", "invalid")}
     self._stats["survived"] = 0
     self._total_reward = 0.0
 
 
 def _tally(self, events) -> None:
+    # count events
     self._stats["steps"] += 1
     for event in events:
         if event == e.COIN_COLLECTED:
@@ -143,14 +122,7 @@ def _tally(self, events) -> None:
 
 
 def _step_data_for(self, game_state: dict, self_action: Optional[str]) -> dict:
-    """Rollout data for a state, reusing what ``act`` already computed.
-
-    ``act`` stashes the observation, log-probability and value for each step, so
-    the common path costs no extra forward pass. The fallback recomputes, which
-    only happens if ``act`` was skipped, possible in principle when the
-    framework drops a slow agent's turn (environment.py:457), though training
-    runs with an infinite timeout.
-    """
+    # cache step data
     key = (game_state["round"], game_state["step"])
     cached = self._step_cache.get(key)
     if cached is not None:
@@ -158,12 +130,12 @@ def _step_data_for(self, game_state: dict, self_action: Optional[str]) -> dict:
 
     _, _, step_data = choose_action(self, game_state)
     if self_action is not None and self_action in ACTION_INDEX:
-        # Honour the action the world actually executed, not a fresh sample.
         step_data["action"] = ACTION_INDEX[self_action]
     return step_data
 
 
 def _store(self, game_state, self_action, reward, done) -> None:
+    # add transition
     step_data = _step_data_for(self, game_state, self_action)
     self.buffer.add(
         observation=step_data["observation"],
@@ -177,7 +149,7 @@ def _store(self, game_state, self_action, reward, done) -> None:
 
 
 def _bootstrap_value(self, game_state: Optional[dict]) -> float:
-    """``V(s_T)`` for a truncated rollout; zero when the episode really ended."""
+    # critic bootstrap
     if game_state is None:
         return 0.0
     observation = T.state_to_tensor(game_state, self.config)
@@ -191,15 +163,17 @@ def _bootstrap_value(self, game_state: Optional[dict]) -> float:
 
 
 def _maybe_update(self, next_game_state: Optional[dict]) -> None:
-    """Run a PPO update once the rollout buffer is full."""
+    # wait for full rollout
     if not self.buffer.is_full:
         return
 
+    # GAE + returns
     last_value = _bootstrap_value(self, next_game_state)
     advantages, returns = self.buffer.compute_advantages(
         last_value, self.config.gamma, self.config.gae_lambda
     )
 
+     # PPO update
     self.network.train()
     metrics = self.learner.update(self.buffer, advantages, returns)
     self.network.eval()
@@ -216,7 +190,7 @@ def _maybe_update(self, next_game_state: Optional[dict]) -> None:
 
 
 def _check_for_failure(self, metrics) -> None:
-    """The plan's PPO failure detectors, logged loudly rather than silently."""
+    # sanity checks
     if metrics.entropy < ENTROPY_COLLAPSE_THRESHOLD:
         self.logger.error(
             f"Policy entropy {metrics.entropy:.3f} < {ENTROPY_COLLAPSE_THRESHOLD}: "
@@ -241,7 +215,7 @@ def game_events_occurred(
     new_game_state: dict,
     events: List[str],
 ):
-    """Called once per step, except for the step an agent dies on."""
+    # normal step
     if old_game_state is None:
         return
 
@@ -260,7 +234,7 @@ def game_events_occurred(
 
 
 def end_of_round(self, last_game_state: dict, last_action: str, events: List[str]):
-    """Called once per round per training agent, dead or alive."""
+    # finish round
     if last_game_state is None:
         _finish_round(self, self.round_index + 1)
         return
@@ -269,9 +243,7 @@ def end_of_round(self, last_game_state: dict, last_action: str, events: List[str
     already_seen = self._last_processed_step == last_game_state["step"]
 
     if already_seen:
-        # Survivor path: the transition is already in the buffer. Credit only
-        # the events appended since (SURVIVED_ROUND and friends) and close the
-        # episode so GAE stops bootstrapping across the boundary.
+        # add only new events
         new_events = list(events[self._last_events_len :])
         if new_events and len(self.buffer) > 0:
             bonus = R.reward_from_events(new_events, self.config)
@@ -283,8 +255,7 @@ def end_of_round(self, last_game_state: dict, last_action: str, events: List[str
         if len(self.buffer) > 0:
             self.buffer.dones[len(self.buffer) - 1] = True
     else:
-        # Death path: game_events_occurred was skipped for this step, so this is
-        # the only chance to learn from the step that killed us.
+        # final transition
         _tally(self, events)
         reward, _ = R.compute_reward(
             last_game_state, last_action, None, events, self.config
@@ -298,6 +269,7 @@ def end_of_round(self, last_game_state: dict, last_action: str, events: List[str
 
 
 def _finish_round(self, round_number: int) -> None:
+    # cleanup + metrics
     self.round_index = round_number
     self._last_processed_step = None
     self._last_events_len = 0
@@ -305,6 +277,7 @@ def _finish_round(self, round_number: int) -> None:
 
     _write_metrics(self)
 
+    # checkpoint
     if self.config.checkpoint_every > 0 and round_number % self.config.checkpoint_every == 0:
         self.learner.save(self.config.model_path)
         self.logger.info(f"Checkpoint at round {round_number} -> {self.config.model_path}")
@@ -313,11 +286,10 @@ def _finish_round(self, round_number: int) -> None:
 
 
 def _write_metrics(self) -> None:
+    # CSV
     if self._metrics_path is None:
         return
 
-    # Coins and kills are the only scoring events, so this reproduces the
-    # framework's score exactly.
     score = self._stats["coins"] * s.REWARD_COIN + self._stats["kills"] * s.REWARD_KILL
     update = self._last_update
 
@@ -346,6 +318,4 @@ def _write_metrics(self) -> None:
     with self._metrics_path.open("a", newline="") as stream:
         csv.DictWriter(stream, fieldnames=METRIC_FIELDS).writerow(row)
 
-    # Consume the update stats so the next round does not re-report them as if
-    # a fresh update had happened.
     self._last_update = {}

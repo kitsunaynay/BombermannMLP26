@@ -1,14 +1,4 @@
-"""Deterministic seed derivation.
-
-Reproducibility is a grading criterion -- the brief asks that a reader be able
-to replicate the results -- so every stochastic component draws its seed from a
-single run seed through a stable hash rather than from wall-clock time or
-process id.
-
-The hash is ``hashlib.blake2b``, not Python's ``hash()``: string hashing is
-randomised per process unless ``PYTHONHASHSEED`` is pinned, which would make
-seeds differ between the training run and the benchmark that reproduces it.
-"""
+"""Deterministic seed derivation."""
 
 from __future__ import annotations
 

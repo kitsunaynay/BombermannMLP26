@@ -1,19 +1,4 @@
-#!/usr/bin/env python3
 """Vendor ``shared/kit`` into each agent directory.
-
-Why vendoring instead of a plain import? The project brief says the graders
-"search for the first directory in the unzipped files that contains a
-callbacks.py" and copy *that directory alone* into their framework. Anything
-the agent imports from the repository root simply will not exist during the
-tournament, so every inference-critical module has to live inside the agent
-folder.
-
-The cost of duplication is drift. This script removes that risk: ``shared/kit``
-is the only editable copy, and ``--check`` (wired into the test suite) fails the
-build the moment a vendored copy diverges.
-
-Usage::
-
     python tools/sync_kit.py            # write the copies
     python tools/sync_kit.py --check    # verify, exit 1 on drift
 """

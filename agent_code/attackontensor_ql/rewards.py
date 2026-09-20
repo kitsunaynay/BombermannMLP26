@@ -1,16 +1,11 @@
-"""Reward assembly for the Q-learning agent.
-
-A thin adapter: the mechanics (potential function, custom-event detection) live
-in :mod:`kit.rewards` so both agents share one implementation, while the weights
-and the on/off switches stay in this agent's own config. See the kit module for
-the Ng et al. (1999) policy-invariance argument behind the shaping term.
-"""
-
 from __future__ import annotations
 
 from typing import List, Optional, Sequence, Tuple
 
 from .config import QLConfig
+# kit.rewards has the shared mechanics (potential function, custom-event
+# detection); this file only wires in this agent's own weights/switches, so
+# PPO and Q-learning can be tuned independently.
 from .kit.rewards import (  # noqa: F401 - re-exported for tests and diagnostics
     CUSTOM_EVENTS,
     ENTERED_DANGER,
@@ -30,7 +25,6 @@ from .kit.rewards import (  # noqa: F401 - re-exported for tests and diagnostics
 
 
 def potential(game_state: Optional[dict], config: QLConfig) -> float:
-    """:math:`\\Phi(s)` under this agent's coefficients."""
     return _potential(
         game_state,
         config.potential_coin,
@@ -44,7 +38,6 @@ def shaping_term(
     new_game_state: Optional[dict],
     config: QLConfig,
 ) -> float:
-    """:math:`\\gamma \\Phi(s') - \\Phi(s)`, or zero when shaping is disabled."""
     if not config.use_potential_shaping:
         return 0.0
     return _shaping_term(
@@ -68,7 +61,6 @@ def compute_reward(
     events: Sequence[str],
     config: QLConfig,
 ) -> Tuple[float, List[str]]:
-    """Total reward for one transition, plus the events actually credited."""
     all_events = list(events)
 
     if config.use_custom_events:

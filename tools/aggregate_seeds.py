@@ -1,15 +1,4 @@
-#!/usr/bin/env python3
 """Aggregate a multi-seed ablation sweep into one comparison table.
-
-The Phase 5 sweep ran one seed per arm, and four of its arms landed within
-~4 coins of each other -- close enough that the ranking could have been noise.
-Aggregating across seeds is what turns those into a claim or retires them, so
-this reports mean +- sd over seeds *and* Welch's t against the baseline, rather
-than only the within-run confidence interval, which measures arena variance and
-says nothing about run-to-run variance.
-
-Usage::
-
     python tools/aggregate_seeds.py --prefix abl2 --stage task2-loot-crate
 """
 
@@ -47,12 +36,7 @@ def stdev(values):
 
 
 def welch(a, b):
-    """Welch's t and its dof for two independent samples.
-
-    Welch rather than Student because the Phase 5 arms had visibly unequal
-    spread (the baseline's interval was the widest of the four), and Welch does
-    not assume otherwise. Returns ``None`` when either arm has n < 2.
-    """
+    """Welch's t and its dof for two independent samples; None if either arm has n < 2."""
     if len(a) < 2 or len(b) < 2:
         return None
     va, vb = stdev(a) ** 2, stdev(b) ** 2

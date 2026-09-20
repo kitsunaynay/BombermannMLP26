@@ -1,21 +1,9 @@
-#!/usr/bin/env python3
 """Evaluate agents against the provided baselines over N seeds.
 
-Every agent plays the *same* arena seeds, so a difference in the table reflects
-the agents rather than the luck of the draw. Results land in
-``results/benchmarks/<name>.json`` for ``tools/make_report_assets.py`` to turn
-into tables and figures.
-
-Examples::
-
-    # Our two agents against the strong baseline, quick in-process backend
     python tools/benchmark.py --agents attackontensor_ql rule_based_agent --seeds 30
 
-    # Certified numbers through the real framework (slower, tournament-exact)
-    python tools/benchmark.py --agents attackontensor_ppo rule_based_agent \\
-        --seeds 20 --backend main
+    python tools/benchmark.py --agents attackontensor_ppo rule_based_agent --seeds 20 --backend main
 
-    # A curriculum stage's exact matchup
     python tools/benchmark.py --agent attackontensor_ql --stage 4 --seeds 50
 """
 

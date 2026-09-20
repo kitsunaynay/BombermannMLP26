@@ -49,9 +49,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--alpha-decay", type=float, default=0.0,
                         help="visit-count learning-rate schedule: alpha / "
                              "(1 + alpha_decay * visits), floored at --alpha-min. "
-                             "0 keeps alpha constant. Implemented at train.py:184 "
-                             "but unreachable from this tool until now, so every "
-                             "run before Phase 8 trained with constant alpha.")
+                             "0 keeps alpha constant.")
     parser.add_argument("--alpha-min", type=float, default=0.01)
     parser.add_argument("--gamma", type=float, default=0.95)
     parser.add_argument("--n-step", type=int, default=3)
@@ -163,12 +161,7 @@ def _file_digest(path: Path) -> Optional[str]:
 
 
 def write_run_manifest(args, stage, run_id, run_dir, work_dir, episodes, resumed) -> None:
-    """Record what produced this run, next to the numbers it produced.
-
-    Without it a directory in `results/` cannot be attributed to an arm except
-    by parsing its name, and the table a stage resumed from is not recorded
-    anywhere. Both gaps bit the Phase 7-10 sweeps.
-    """
+    """Record what produced this run, next to the numbers it produced."""
     manifest = {
         "run_id": run_id,
         "stage": stage.index,

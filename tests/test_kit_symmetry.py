@@ -1,10 +1,4 @@
-"""D4 symmetry tests.
-
-The contract that matters: transforming the board and transforming the action
-must describe the *same* physical move. If that ever breaks, augmentation
-silently teaches the policy wrong labels, which is close to impossible to
-diagnose from a learning curve.
-"""
+"""D4 symmetry tests."""
 
 import numpy as np
 import pytest

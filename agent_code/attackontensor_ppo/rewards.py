@@ -1,17 +1,9 @@
-"""Reward assembly for the PPO agent.
-
-Thin adapter over :mod:`kit.rewards`, which holds the shared mechanics (the
-potential function and custom-event detection). Only the weights and switches
-are agent-specific, so the two agents can be tuned independently without the
-game logic drifting apart.
-"""
-
 from __future__ import annotations
 
 from typing import List, Optional, Sequence, Tuple
 
 from .config import PPOConfig
-from .kit.rewards import (  # noqa: F401 - re-exported for tests and diagnostics
+from .kit.rewards import (
     CUSTOM_EVENTS,
     detect_custom_events,
     potential as _potential,
@@ -57,7 +49,6 @@ def compute_reward(
     events: Sequence[str],
     config: PPOConfig,
 ) -> Tuple[float, List[str]]:
-    """Total reward for one transition, plus the events actually credited."""
     all_events = list(events)
 
     if config.use_custom_events:

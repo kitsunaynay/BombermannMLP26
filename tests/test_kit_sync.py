@@ -1,9 +1,4 @@
-"""Guard against vendored-kit drift.
-
-``shared/kit`` is copied into each agent directory because the tournament only
-receives that one directory. Duplication without a check is how the copies quietly
-diverge, so the check runs as part of the test suite.
-"""
+"""Guard against vendored-kit drift."""
 
 import sys
 from pathlib import Path

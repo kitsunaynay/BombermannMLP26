@@ -1,11 +1,4 @@
 """AttackOnTensor training and evaluation infrastructure.
-
-Everything in this package is *development-only*. The brief has the graders copy
-a single agent directory into their own checkout of the framework, so nothing
-here exists during a tournament game and no submitted agent module may import
-from it. Inference-critical code lives in ``shared/kit`` and is vendored into
-each agent instead (see ``tools/sync_kit.py``).
-
 Contents:
 
 ``fast_env``    a ``BombeRLeWorld`` subclass driven by injected actions

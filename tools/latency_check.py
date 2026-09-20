@@ -1,17 +1,4 @@
-#!/usr/bin/env python3
 """Verify an agent decides within the tournament's per-step budget.
-
-The brief guarantees "exclusive access to one thread of an AMD Ryzen 5 2600" and
-0.5 s per step. Overrunning is not a soft failure: the framework replaces the
-action with ``WAIT`` *and* subtracts the overrun from the next step's budget
-(environment.py:448), so a slow agent plays a strictly worse game than a fast
-one, on top of whatever its policy would have done.
-
-This measures ``act`` exactly as the framework calls it -- one thread, real game
-states drawn from a real game, cold start included.
-
-Usage::
-
     python tools/latency_check.py --agent attackontensor_ppo
     python tools/latency_check.py --agent attackontensor_ql --scenario classic --steps 2000
 """

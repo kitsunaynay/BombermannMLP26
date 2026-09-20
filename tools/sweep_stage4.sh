@@ -1,34 +1,4 @@
 #!/usr/bin/env bash
-# Stage-4 sweep: the agent against three rule_based_agents. This is the matchup
-# the tournament is, and the one the project has never trained on.
-#
-# Arms:
-#
-#   hard    the project's standard schedule: safety_mode hard, epsilon 1.0 -> 0.05
-#   warm    identical but epsilon starts at 0.3
-#   soft    safety_mode soft, standard schedule
-#
-# `warm` exists because a resumed stage restarting exploration at 1.0 discards
-# the policy the previous stage produced. Measured on the first launch: at
-# epsilon 0.90 the `hard` arm still managed 150-400 steps and 12-19 crates a
-# round, because the mask refuses unsurvivable bombs, while `soft` at epsilon
-# 0.43 was down to 6-23 steps with a suicide in every round and a *shrinking*
-# state count. The mask was carrying the exploration, not the policy.
-#
-# `soft` is kept in the script for reproducibility but is not in the default
-# set: 1,690 rounds of it produced no score and no state growth.
-#
-# Each arm resumes from its OWN lineage's selected stage-3 table. A table
-# trained behind `hard` and replayed under `soft` suicides in every round
-# (DEVLOG Phase 5), so cross-seeding the arms would not compare mask modes, it
-# would compare matched against mismatched training. The cost is that the arms
-# differ in initialisation as well as in mask, which the writeup must say.
-#
-# run.json records each run's flags, derived seeds, git sha and the md5 of the
-# table it resumed from, so the pairing is verifiable afterwards.
-#
-# Usage:  tools/sweep_stage4.sh [episodes]           (default 10000)
-#         ARMS='hard soft' tools/sweep_stage4.sh    (pick the arms)
 set -u
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
