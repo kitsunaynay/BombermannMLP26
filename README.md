@@ -35,15 +35,15 @@ python tools/make_report_assets.py
 ```
 
 
-### Ai aknowledgement:
+### Ai Acknowledgment:
 AI was used in the following way:
 1. Code was written on our own, restructured, commented, and optimized by AI for readability and clean repository that all members can understand each others code more easily.
-2. AI recommended training harness was implemented by human and optimized by AI for high quality code and optimal training. Double checked by human.
+2. Recommended training harness was implemented by human and optimized by AI for high quality code and optimal training. Double checked by human.
 3. Base repository structure was created with AI to start clean and organized. Made with detailed human instructions and double checks. No agent implementations yet.
 4. Support with a training feedback loop to automate testing and promotion. Referred to as "curriculum" in the files. Curriculum given by human.
 
 
-## AI changes:
+### Base repo changes:
 
 Four upstream bugs are fixed for development convenience:
 
