@@ -12,7 +12,7 @@ More details in the report.
 
 The training and controlled experiments for the linear PPO agent are documented in:
 
-`notebooks/Bomberman_PPO_300.ipynb`
+`notebooks/survival_linear_ppo.ipynb`
 
 ## Quick stuff
 
@@ -33,7 +33,7 @@ python tools/train_ql.py --stage 1
 python tools/train_ppo.py --stage 1 --workers 8 --total-steps 500000
 
 # linear PPO training and experiments
-# see notebooks/Bomberman_PPO_300.ipynb
+# see notebooks/survival_linear_ppo.ipynb
 # training callbacks are in agent_code/survival_linear_ppo_v4/train.py
 
 # comparison on 30 seeds, vs baseline agents
