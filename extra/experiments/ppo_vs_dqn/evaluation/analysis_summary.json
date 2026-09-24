@@ -1,0 +1,34 @@
+{
+  "n_test_seeds": 50,
+  "n_training_runs_per_algorithm": 3,
+  "base_seed": 20261001,
+  "bootstrap_samples": 10000,
+  "algorithms": {
+    "PPO": {
+      "run_score_means": [
+        19.84,
+        12.8,
+        8.94
+      ],
+      "mean_score_across_runs": 13.86,
+      "sd_score_across_runs": 5.52677120930476
+    },
+    "DQN": {
+      "run_score_means": [
+        16.88,
+        14.64,
+        13.16
+      ],
+      "mean_score_across_runs": 14.893333333333333,
+      "sd_score_across_runs": 1.8728943732451466
+    }
+  },
+  "score_comparison": {
+    "dqn_minus_ppo": 1.0333333333333337,
+    "paired_bootstrap_ci_low": -0.21333333333333315,
+    "paired_bootstrap_ci_high": 2.26,
+    "dqn_higher_fraction": 0.52,
+    "ppo_higher_fraction": 0.46,
+    "equal_fraction": 0.02
+  }
+}
