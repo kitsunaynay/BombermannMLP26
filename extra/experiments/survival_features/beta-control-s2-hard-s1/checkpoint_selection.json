@@ -1,0 +1,47 @@
+[
+  {
+    "checkpoint": "policy_final.pt",
+    "score": 16.666666666666668,
+    "survival": 1.0,
+    "gate_pass": true,
+    "suicide": 0.0,
+    "win": 1.0,
+    "kills": 0.0
+  },
+  {
+    "checkpoint": "policy_it000080.pt",
+    "score": 11.666666666666666,
+    "survival": 1.0,
+    "gate_pass": true,
+    "suicide": 0.0,
+    "win": 1.0,
+    "kills": 0.0
+  },
+  {
+    "checkpoint": "policy_it000040.pt",
+    "score": 9.25,
+    "survival": 1.0,
+    "gate_pass": true,
+    "suicide": 0.0,
+    "win": 1.0,
+    "kills": 0.0
+  },
+  {
+    "checkpoint": "policy_it000060.pt",
+    "score": 7.0,
+    "survival": 1.0,
+    "gate_pass": true,
+    "suicide": 0.0,
+    "win": 1.0,
+    "kills": 0.0
+  },
+  {
+    "checkpoint": "policy_it000020.pt",
+    "score": 4.5,
+    "survival": 1.0,
+    "gate_pass": true,
+    "suicide": 0.0,
+    "win": 1.0,
+    "kills": 0.0
+  }
+]
