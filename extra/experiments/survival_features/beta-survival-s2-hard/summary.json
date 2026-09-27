@@ -1,0 +1,7 @@
+{
+  "run_id": "beta-survival-s2-hard",
+  "stage": "task2-loot-crate",
+  "total_steps": 99328,
+  "episodes": 248,
+  "elapsed_seconds": 518.8991445419997
+}
