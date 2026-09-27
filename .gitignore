@@ -8,6 +8,7 @@ __pycache__/
 
 docs/
 results/
+tests/
 
 # Distribution / packaging
 .Python
