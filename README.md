@@ -1,3 +1,5 @@
+# COPYRIGHT NOTICE: Parts of this repository belong to the original course's repository supplied by Prof Köthe (https://github.com/ukoethe/bomberman_rl) and are a copy from August 2026's main branch.
+
 # bomberman_rl — Team AttackOnTensor
 
 The agents implemented:
